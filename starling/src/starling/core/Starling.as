@@ -10,6 +10,7 @@
 
 package starling.core
 {
+    import flash.display.BitmapData;
     import flash.display.Sprite;
     import flash.display.Stage3D;
     import flash.display.StageAlign;
@@ -45,6 +46,7 @@ package starling.core
     import starling.events.ResizeEvent;
     import starling.events.TouchPhase;
     import starling.events.TouchProcessor;
+    import starling.textures.Texture;
     import starling.utils.HAlign;
     import starling.utils.VAlign;
     
@@ -234,6 +236,7 @@ package starling.core
             mSimulateMultitouch = false;
             mEnableErrorChecking = false;
             mProfile = profile;
+			mAgalVersion = profile == 'baselineExtended' ? 2 : 1;
             mSupportHighResolutions = false;
             mLastFrameTimestamp = getTimer() / 1000.0;
             mSupport  = new RenderSupport();
@@ -328,7 +331,8 @@ package starling.core
             
             initializeGraphicsAPI();
             initializeRoot();
-            
+			initializeDefaultMaps();
+			
             mTouchProcessor.simulateMultitouch = mSimulateMultitouch;
             mLastFrameTimestamp = getTimer() / 1000.0;
         }
@@ -358,6 +362,23 @@ package starling.core
                 dispatchEventWith(starling.events.Event.ROOT_CREATED, false, mRoot);
             }
         }
+		
+		public var defaultNormalMap:Texture;
+		public var defaultDepthMap:Texture;		
+		
+		private function initializeDefaultMaps():void
+		{
+			// Generate default depth texture
+			
+			var bd:BitmapData = new BitmapData(16, 16);
+			bd.fillRect(new Rectangle(0, 0, 16, 16), 0x8080FFFF);
+			defaultNormalMap = Texture.fromBitmapData(bd, false);
+			
+			// Generate default depth texture
+			
+			bd.fillRect(new Rectangle(0, 0, 16, 16), 0xFFFFFFFF);
+			defaultDepthMap = Texture.fromBitmapData(bd, false);
+		}
         
         /** Calls <code>advanceTime()</code> (with the time that has passed since the last frame)
          *  and <code>render()</code>. */ 
@@ -902,6 +923,17 @@ package starling.core
             }
         }
         
+		private var mAgalVersion:int = 1;
+		
+		/**
+		 * AGAL version. 1 is default, 2 can be only used with BASELINE_EXTENDED profile. Version 2 adds support for
+		 * multiple render targets, increased shader opcocde count, also allows use shader conditionals and more.
+		 */
+		public function get agalVersion():int
+		{
+			return mAgalVersion;
+		}
+		
         /** The TouchProcessor is passed all mouse and touch input and is responsible for
          *  dispatching TouchEvents to the Starling display tree. If you want to handle these
          *  types of input manually, pass your own custom subclass to this property. */
@@ -961,5 +993,10 @@ package starling.core
             else
                 sHandleLostContext = value;
         }
+		
+		public function get renderSupport():RenderSupport 
+		{
+			return mSupport;
+		}
     }
 }

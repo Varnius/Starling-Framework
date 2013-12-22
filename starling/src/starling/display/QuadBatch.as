@@ -29,6 +29,9 @@ package starling.display
     import starling.core.starling_internal;
     import starling.errors.MissingContextError;
     import starling.events.Event;
+    import starling.extensions.defferedShading.DeferredShadingProperties;
+    import starling.extensions.defferedShading.RenderPass;
+    import starling.extensions.defferedShading.Utils;
     import starling.filters.FragmentFilter;
     import starling.filters.FragmentFilterMode;
     import starling.textures.Texture;
@@ -70,6 +73,7 @@ package starling.display
         public static const MAX_NUM_QUADS:int = 8192;
         
         private static const QUAD_PROGRAM_NAME:String = "QB_q";
+		private static const QUAD_PROGRAM_NAME_DEFERRED:String = "QB_q_def";
         
         private var mNumQuads:int;
         private var mSyncRequired:Boolean;
@@ -93,6 +97,12 @@ package starling.display
         private static var sRenderAlpha:Vector.<Number> = new <Number>[1.0, 1.0, 1.0, 1.0];
         private static var sRenderMatrix:Matrix3D = new Matrix3D();
         private static var sProgramNameCache:Dictionary = new Dictionary();
+		
+		// Deferred defaults
+		
+		private var deferredQuadConstants:Vector.<Number> = new <Number>[128, 128, 255, 0];
+		private var specularParams:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
+		private var defaultSpecularParamsForQuads:Vector.<Number> = new <Number>[0.8, 0.5, 0.0, 0.0];
         
         /** Creates a new QuadBatch instance with empty batch data. */
         public function QuadBatch()
@@ -197,7 +207,7 @@ package starling.display
                 mSyncRequired = false;
             }
         }
-        
+		
         /** Renders the current batch with custom settings for model-view-projection matrix, alpha 
          *  and blend mode. This makes it possible to render batches that are not part of the 
          *  display list. */ 
@@ -207,12 +217,14 @@ package starling.display
             if (mNumQuads == 0) return;
             if (mSyncRequired) syncBuffers();
             
+			var currPass:String = Starling.current.renderSupport.renderPass;
+			var deferredPass:Boolean = currPass == RenderPass.DEFERRED_MRT;
             var pma:Boolean = mVertexData.premultipliedAlpha;
             var context:Context3D = Starling.context;
             var tinted:Boolean = mTinted || (parentAlpha != 1.0);
             var programName:String = mTexture ? 
-                getImageProgramName(tinted, mTexture.mipMapping, mTexture.repeat, mTexture.format, mSmoothing) : 
-                QUAD_PROGRAM_NAME;
+                getImageProgramName(tinted, mTexture.mipMapping, mTexture.repeat, mTexture.format, mSmoothing, currPass) : 
+                (deferredPass ? QUAD_PROGRAM_NAME_DEFERRED : QUAD_PROGRAM_NAME);
             
             sRenderAlpha[0] = sRenderAlpha[1] = sRenderAlpha[2] = pma ? parentAlpha : 1.0;
             sRenderAlpha[3] = parentAlpha;
@@ -223,6 +235,9 @@ package starling.display
             context.setProgram(Starling.current.getProgram(programName));
             context.setProgramConstantsFromVector(Context3DProgramType.VERTEX, 0, sRenderAlpha, 1);
             context.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 1, sRenderMatrix, true);
+			
+			// Set program constants for deferred pass
+			
             context.setVertexBufferAt(0, mVertexBuffer, VertexData.POSITION_OFFSET, 
                                       Context3DVertexBufferFormat.FLOAT_2); 
             
@@ -230,12 +245,47 @@ package starling.display
                 context.setVertexBufferAt(1, mVertexBuffer, VertexData.COLOR_OFFSET, 
                                           Context3DVertexBufferFormat.FLOAT_4);
             
+			// Image
+			
             if (mTexture)
             {
                 context.setTextureAt(0, mTexture.base);
                 context.setVertexBufferAt(2, mVertexBuffer, VertexData.TEXCOORD_OFFSET, 
                                           Context3DVertexBufferFormat.FLOAT_2);
+				
+				// Set textures for deferred pass	
+				
+				if (deferredPass)
+				{			
+					var normalMapPresent:Boolean = mTexture.deferredRendererProperties.normalMap;
+					var depthMapPresent:Boolean = mTexture.deferredRendererProperties.depthMap;
+					
+					// Set specular params constants, fc5
+					// Also, scale to fit into range of [0.0, 1.0] as all output is clipped
+					
+					specularParams[0] = mTexture.deferredRendererProperties.specularPower / DeferredShadingProperties.SPECULAR_POWER_SCALE;						
+					specularParams[1] = mTexture.deferredRendererProperties.specularIntensity / DeferredShadingProperties.SPECULAR_INTENSITY_SCALE;
+					
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, specularParams, 1);
+					
+					// Set samplers	
+					
+					context.setTextureAt(1, normalMapPresent ? mTexture.deferredRendererProperties.normalMap.base : Starling.current.defaultNormalMap.base);	
+					context.setTextureAt(2, depthMapPresent ? mTexture.deferredRendererProperties.depthMap.base : Starling.current.defaultDepthMap.base);
+				}		
             }
+			
+			// Quad
+			
+			else
+			{
+				if (deferredPass)
+				{			
+					// Set default normal color for quads				
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, deferredQuadConstants, 1);					
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, defaultSpecularParamsForQuads, 1);
+				}				
+			}
             
             context.drawTriangles(mIndexBuffer, 0, mNumQuads * 2);
             
@@ -243,6 +293,13 @@ package starling.display
             {
                 context.setTextureAt(0, null);
                 context.setVertexBufferAt(2, null);
+				
+				if (deferredPass)
+				{
+					// Unset textures		
+					context.setTextureAt(1, null);
+					context.setTextureAt(2, null);
+				}
             }
             
             context.setVertexBufferAt(1, null);
@@ -652,8 +709,8 @@ package starling.display
             if (target.hasProgram(QUAD_PROGRAM_NAME)) return; // already registered
             
             var assembler:AGALMiniAssembler = new AGALMiniAssembler();
-            var vertexProgramCode:String;
-            var fragmentProgramCode:String;
+            var vertexProgram:String;
+            var fragmentProgram:String;
             
             // this is the input data we'll pass to the shaders:
             // 
@@ -666,48 +723,128 @@ package starling.display
             
             // Quad:
             
-            vertexProgramCode =
+            vertexProgram =
                 "m44 op, va0, vc1 \n" + // 4x4 matrix transform to output clipspace
                 "mul v0, va1, vc0 \n";  // multiply alpha (vc0) with color (va1)
             
-            fragmentProgramCode =
+            fragmentProgram =
                 "mov oc, v0       \n";  // output color
             
             target.registerProgram(QUAD_PROGRAM_NAME,
-                assembler.assemble(Context3DProgramType.VERTEX, vertexProgramCode),
-                assembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgramCode));
+                assembler.assemble(Context3DProgramType.VERTEX, vertexProgram, Starling.current.agalVersion),
+                assembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgram, Starling.current.agalVersion));
             
+			// Quad deferred:
+			
+			vertexProgram =
+				"m44 op, va0, vc1 \n" + // 4x4 matrix transform to output clipspace
+				"mul v0, va1, vc0 \n";  // multiply alpha (vc0) with color (va1)
+			
+			fragmentProgram = Utils.joinProgramArray(
+				[
+					// Diffuse render target
+					'mov ft0, v0',
+					//'mov ft0.a, fc6.x', changed to depth
+					'mov oc, ft0',
+					
+					// Normal render target
+					'mov ft0, fc5',
+					'mov ft0.a, fc6.y',
+					'mov oc1, ft0',
+					
+					// Depth render target
+					'mov oc2.a, fc6.x'
+				]
+			);
+			
+			target.registerProgram(QUAD_PROGRAM_NAME_DEFERRED,
+				assembler.assemble(Context3DProgramType.VERTEX, vertexProgram, Starling.current.agalVersion),
+				assembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgram, Starling.current.agalVersion));
+			
             // Image:
             // Each combination of tinted/repeat/mipmap/smoothing has its own fragment shader.
-            
+
+			var smoothingTypes:Array = [
+				TextureSmoothing.NONE,
+				TextureSmoothing.BILINEAR,
+				TextureSmoothing.TRILINEAR
+			];
+			
+			var formats:Array = [
+				Context3DTextureFormat.BGRA,
+				Context3DTextureFormat.COMPRESSED,
+				"compressedAlpha" // use explicit string for compatibility
+			];
+			
+			var passTypes:Array = [
+				RenderPass.NORMAL, 
+				RenderPass.DEFERRED_MRT
+			];
+			
+			vertexProgram = Utils.joinProgramArray(
+				[
+					// 4x4 matrix transform to output clipspace
+					'm44 op, va0, vc1',
+					
+					// Tint logic goes here
+					'<tint_part>',
+					
+					// Pass texture coordinates to fragment program
+					'mov v1, va2'
+				]
+			);
+			
+			fragmentProgram = Utils.joinProgramArray(
+				[
+					// Sample diffuse
+					'tex ft1, v1, fs0 <sampler_flags>',
+					
+					// Tint logic goes here
+					'<tint_part>',
+					
+					// Deferred pass logic goes here
+					'<deferred_part>',
+					
+					// Output color
+					'mov oc, ft1'
+				]
+			);
+			
+			// Tint program parts
+			
+			var tintVertexProgramPart:String = Utils.joinProgramArray(
+				[
+					// Multiply alpha (vc0) with color (va1)
+					'mul v0, va1, vc0'
+				]
+			);
+			
+			var tintFragmentProgramPart:String = Utils.joinProgramArray(
+				[
+					// Multiply color with texel color
+					'mul ft1, ft1, v0'
+				]
+			);
+			
+			// Deferred program parts
+			
+			var deferredFragmentProgramPart:String = Utils.joinProgramArray(
+				[
+					// Sample normal
+					'tex ft2, v1, fs1 <sampler_flags>',
+					// Sample depth
+					'tex ft3, v1, fs2 <sampler_flags>',
+					// Set depth RT alpha channel to specular power
+					'mov ft3.w, fc5.x',
+					'mov oc2, ft3',
+					// Set normal RT alpha channel to specular intensity
+					'mov ft2.w, fc5.y',					
+					'mov oc1, ft2'
+				]
+			);
+			
             for each (var tinted:Boolean in [true, false])
-            {
-                vertexProgramCode = tinted ?
-                    "m44 op, va0, vc1 \n" + // 4x4 matrix transform to output clipspace
-                    "mul v0, va1, vc0 \n" + // multiply alpha (vc0) with color (va1)
-                    "mov v1, va2      \n"   // pass texture coordinates to fragment program
-                  :
-                    "m44 op, va0, vc1 \n" + // 4x4 matrix transform to output clipspace
-                    "mov v1, va2      \n";  // pass texture coordinates to fragment program
-                    
-                fragmentProgramCode = tinted ?
-                    "tex ft1,  v1, fs0 <???> \n" + // sample texture 0
-                    "mul  oc, ft1,  v0       \n"   // multiply color with texel color
-                  :
-                    "tex  oc,  v1, fs0 <???> \n";  // sample texture 0
-                
-                var smoothingTypes:Array = [
-                    TextureSmoothing.NONE,
-                    TextureSmoothing.BILINEAR,
-                    TextureSmoothing.TRILINEAR
-                ];
-                
-                var formats:Array = [
-                    Context3DTextureFormat.BGRA,
-                    Context3DTextureFormat.COMPRESSED,
-                    "compressedAlpha" // use explicit string for compatibility
-                ];
-                
+            {                
                 for each (var repeat:Boolean in [true, false])
                 {
                     for each (var mipmap:Boolean in [true, false])
@@ -716,15 +853,44 @@ package starling.display
                         {
                             for each (var format:String in formats)
                             {
-                                var flags:String = RenderSupport.getTextureLookupFlags(
-                                    format, mipmap, repeat, smoothing);
-                                
-                                target.registerProgram(
-                                    getImageProgramName(tinted, mipmap, repeat, format, smoothing),
-                                    assembler.assemble(Context3DProgramType.VERTEX, vertexProgramCode),
-                                    assembler.assemble(Context3DProgramType.FRAGMENT,
-                                        fragmentProgramCode.replace("<???>", flags))
-                                );
+								for each (var passType:String in passTypes)
+								{
+									var samplerFlags:String = RenderSupport.getTextureLookupFlags(
+										format, mipmap, repeat, smoothing);
+									
+									var finalVertexProgram:String = vertexProgram;
+									var finalFragmentProgram:String = fragmentProgram;									
+									
+									// Tint
+									
+									finalVertexProgram = finalVertexProgram.replace(
+										'<tint_part>',
+										tinted ? tintVertexProgramPart : ''
+									);
+									
+									finalFragmentProgram = finalFragmentProgram.replace(
+										'<tint_part>',
+										tinted ? tintFragmentProgramPart : ''
+									);
+									
+									// Deferred shading
+									
+									finalFragmentProgram = finalFragmentProgram.replace(
+										'<sampler_flags>', 
+										samplerFlags
+									);								
+									
+									finalFragmentProgram = finalFragmentProgram.replace(
+										'<deferred_part>',
+										passType == RenderPass.NORMAL ? '' : deferredFragmentProgramPart
+									);
+									
+									target.registerProgram(
+										getImageProgramName(tinted, mipmap, repeat, format, smoothing, passType),
+										assembler.assemble(Context3DProgramType.VERTEX, finalVertexProgram, Starling.current.agalVersion),
+										assembler.assemble(Context3DProgramType.FRAGMENT, finalFragmentProgram, Starling.current.agalVersion)
+									);
+								}                               
                             }
                         }
                     }
@@ -734,7 +900,7 @@ package starling.display
         
         private static function getImageProgramName(tinted:Boolean, mipMap:Boolean=true, 
                                                     repeat:Boolean=false, format:String="bgra",
-                                                    smoothing:String="bilinear"):String
+                                                    smoothing:String="bilinear", pass:String = RenderPass.NORMAL):String
         {
             var bitField:uint = 0;
             
@@ -752,6 +918,9 @@ package starling.display
             else if (format == "compressedAlpha")
                 bitField |= 1 << 6;
             
+			if (pass == RenderPass.NORMAL)
+				bitField |= 1 << 7;
+			
             var name:String = sProgramNameCache[bitField];
             
             if (name == null)

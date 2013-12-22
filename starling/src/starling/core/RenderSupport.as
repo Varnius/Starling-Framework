@@ -26,6 +26,7 @@ package starling.core
     import starling.display.Quad;
     import starling.display.QuadBatch;
     import starling.errors.MissingContextError;
+    import starling.extensions.defferedShading.RenderPass;
     import starling.textures.Texture;
     import starling.textures.TextureSmoothing;
     import starling.utils.Color;
@@ -229,6 +230,38 @@ package starling.core
             if (target) Starling.context.setRenderToTexture(target.base);
             else        Starling.context.setRenderToBackBuffer();
         }
+		
+		private var mRenderTargets:Vector.<Texture>;
+		
+		/**
+		 * Sets multiple render targets. Note: input vector cannot be empty.
+		 * Instead, it should be filled with nulls for RTs that won't be used.
+		 */
+		public function set renderTargets(targets:Vector.<Texture>):void 
+		{			
+			mRenderTarget = targets[0];
+			mRenderTargets = targets;
+			applyClipRect();
+				
+			var le:int = mRenderTargets.length;
+			var context:Context3D = Starling.context;
+			
+			for(var i:int = 0; i < le; i++)
+			{
+				// All render targets with colorOutputIndex > 0 must be reset to null before switching to backbuffer
+				// New render target could be a texture again ant not backbuffer, but we should still reset it
+				
+				if(i != 0 || targets[i] != null)
+				{
+					context.setRenderToTexture(targets[i] ? targets[i].base : null, false, 0, 0, i);
+				}				
+			}
+			
+			if(!mRenderTarget)
+			{
+				Starling.context.setRenderToBackBuffer();
+			}							
+		}
         
         // clipping
         
@@ -478,5 +511,16 @@ package starling.core
         
         /** Indicates the number of stage3D draw calls. */
         public function get drawCount():int { return mDrawCount; }
+		
+		private var mRenderPass:String = RenderPass.NORMAL;
+		
+		public function get renderPass():String
+		{ 
+			return mRenderPass;
+		}
+		public function set renderPass(value:String):void
+		{
+			mRenderPass = value;
+		}		
     }
 }

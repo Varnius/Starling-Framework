@@ -11,3 +11,7 @@ starling/doc/html/
 
 # OS X folders
 .DS_Store
+/starling/bin/StarlingMRTFork.swc
+/starling/.flexLibProperties
+/starling/.project
+/starling/.actionScriptProperties
