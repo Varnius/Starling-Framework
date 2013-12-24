@@ -98,11 +98,11 @@ package starling.display
         private static var sRenderMatrix:Matrix3D = new Matrix3D();
         private static var sProgramNameCache:Dictionary = new Dictionary();
 		
-		// Deferred defaults
+		// Deferred shading
 		
-		private var deferredQuadConstants:Vector.<Number> = new <Number>[128, 128, 255, 0];
+		private var deferredQuadNormal:Vector.<Number> = new <Number>[0.5, 0.5, 1.0, 1.0];		
+		private var deferredQuadSpecularParams:Vector.<Number> = new <Number>[MaterialProperties.DEFAULT_SPECULAR_POWER, MaterialProperties.DEFAULT_SPECULAR_INTENSITY, 1.0, 0.0];
 		private var specularParams:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
-		private var defaultSpecularParamsForQuads:Vector.<Number> = new <Number>[0.8, 0.5, 0.0, 0.0];
         
         /** Creates a new QuadBatch instance with empty batch data. */
         public function QuadBatch()
@@ -245,6 +245,12 @@ package starling.display
                 context.setVertexBufferAt(1, mVertexBuffer, VertexData.COLOR_OFFSET, 
                                           Context3DVertexBufferFormat.FLOAT_4);
             
+			if(deferredPass)
+			{
+				// Yeah, now alpha support is gone
+				//context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ZERO);
+			}
+			
 			// Image
 			
             if (mTexture)
@@ -282,8 +288,8 @@ package starling.display
 				if (deferredPass)
 				{			
 					// Set default normal color for quads				
-					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, deferredQuadConstants, 1);					
-					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, defaultSpecularParamsForQuads, 1);
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, deferredQuadNormal, 1);					
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, deferredQuadSpecularParams, 1);
 				}				
 			}
             
@@ -740,20 +746,20 @@ package starling.display
 				"m44 op, va0, vc1 \n" + // 4x4 matrix transform to output clipspace
 				"mul v0, va1, vc0 \n";  // multiply alpha (vc0) with color (va1)
 			
+			// fc5, deferred quad normal [0.5, 0.5, 1.0, 0]
+			// fc6, deferred quad specular/depth params [specPower, specIntensity, defaultDepth, 0.0]
+			
 			fragmentProgram = Utils.joinProgramArray(
 				[
 					// Diffuse render target
-					'mov ft0, v0',
-					//'mov ft0.a, fc6.x', changed to depth
-					'mov oc, ft0',
+					'mov oc, v0',
 					
 					// Normal render target
-					'mov ft0, fc5',
-					'mov ft0.a, fc6.y',
-					'mov oc1, ft0',
+					'mov oc1, fc5',
 					
 					// Depth render target
-					'mov oc2.a, fc6.x'
+					// Write specular params to depth yz				
+					'mov oc2.xyzw, fc6.zxyz'
 				]
 			);
 			
@@ -831,15 +837,13 @@ package starling.display
 			var deferredFragmentProgramPart:String = Utils.joinProgramArray(
 				[
 					// Sample normal
-					'tex ft2, v1, fs1 <sampler_flags>',
+					'tex oc1, v1, fs1 <sampler_flags>',
 					// Sample depth
 					'tex ft3, v1, fs2 <sampler_flags>',
-					// Set depth RT alpha channel to specular power
-					'mov ft3.w, fc5.x',
-					'mov oc2, ft3',
-					// Set normal RT alpha channel to specular intensity
-					'mov ft2.w, fc5.y',					
-					'mov oc1, ft2'
+					// Set depth yz to specular power/intensity
+					'mov ft3.y, fc5.x',
+					'mov ft3.z, fc5.y',
+					'mov oc2, ft3'
 				]
 			);
 			

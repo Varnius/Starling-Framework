@@ -7,10 +7,13 @@ package starling.extensions.defferedShading
 		public static const SPECULAR_POWER_SCALE:Number = 256.0;
 		public static const SPECULAR_INTENSITY_SCALE:Number = 50.0;
 		
+		public static const DEFAULT_SPECULAR_POWER:Number = 10.0;
+		public static const DEFAULT_SPECULAR_INTENSITY:Number = 1.0;
+		
 		public var normalMap:Texture;
 		public var depthMap:Texture;
-		public var specularIntensity:Number = 1.0;
-		public var specularPower:Number = 10.0;
+		public var specularIntensity:Number = DEFAULT_SPECULAR_INTENSITY;
+		public var specularPower:Number = DEFAULT_SPECULAR_POWER;
 		
 		public function MaterialProperties(normalMap:Texture = null, depthMap:Texture = null)
 		{

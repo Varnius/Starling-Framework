@@ -23,6 +23,7 @@ package starling.extensions.defferedShading.debug
 	public class DebugImage extends DisplayObject
 	{
 		private static var PROGRAM_NAME:String = 'DebugImage';
+		private static var PROGRAM_NAME_CHANNEL_R:String = 'DebugImageChannelR';
 		
 		// vertex data 
 		private var mVertexData:VertexData;
@@ -147,7 +148,7 @@ package starling.extensions.defferedShading.debug
 			support.applyBlendMode(false);
 			
 			// activate program (shader) and set the required buffers / constants 
-			context.setProgram(Starling.current.getProgram(PROGRAM_NAME));
+			context.setProgram(Starling.current.getProgram(_showChannel == 0 ? PROGRAM_NAME_CHANNEL_R : PROGRAM_NAME));
 			context.setVertexBufferAt(0, mVertexBuffer, VertexData.POSITION_OFFSET, Context3DVertexBufferFormat.FLOAT_2); 
 			context.setVertexBufferAt(1, mVertexBuffer, VertexData.TEXCOORD_OFFSET, Context3DVertexBufferFormat.FLOAT_2);
 			context.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 0, support.mvpMatrix3D, true);
@@ -169,11 +170,6 @@ package starling.extensions.defferedShading.debug
 			var target:Starling = Starling.current;
 			if (target.hasProgram(PROGRAM_NAME)) return; // already registered
 			
-			// va0 -> position
-			// va1 -> color
-			// vc0 -> mvpMatrix (4 vectors, vc0 - vc3)
-			// vc4 -> alpha
-			
 			var vertexProgramCode:String =
 				Utils.joinProgramArray(
 					[
@@ -191,6 +187,16 @@ package starling.extensions.defferedShading.debug
 					]
 				);
 			
+			var fragmentProgramCodeChannelR:String =
+				Utils.joinProgramArray(
+					[
+						'tex ft0, v0, fs0 <2d, clamp, linear, mipnone>',
+						'mov ft0.yz, ft0.xx',
+						'mov ft0.w, fc0.w',
+						'mov oc, ft0'
+					]
+				);
+			
 			var vertexProgramAssembler:AGALMiniAssembler = new AGALMiniAssembler();
 			vertexProgramAssembler.assemble(Context3DProgramType.VERTEX, vertexProgramCode);
 			
@@ -199,6 +205,23 @@ package starling.extensions.defferedShading.debug
 			
 			target.registerProgram(PROGRAM_NAME, vertexProgramAssembler.agalcode,
 				fragmentProgramAssembler.agalcode);
+			
+			fragmentProgramAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgramCodeChannelR);
+			
+			target.registerProgram(PROGRAM_NAME_CHANNEL_R, vertexProgramAssembler.agalcode,
+				fragmentProgramAssembler.agalcode);
 		}
+		
+		private var _showChannel:int = -1;
+		
+		// Valid values: -1, 0
+		public function get showChannel():int
+		{ 
+			return _showChannel;
+		}
+		public function set showChannel(value:int):void
+		{
+			_showChannel = value;
+		}		
 	}
 }

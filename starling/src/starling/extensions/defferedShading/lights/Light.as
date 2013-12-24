@@ -47,6 +47,6 @@ package starling.extensions.defferedShading.lights
 		public function set strength(value:Number):void
 		{
 			_strength = value;
-		}	
+		}
 	}
 }

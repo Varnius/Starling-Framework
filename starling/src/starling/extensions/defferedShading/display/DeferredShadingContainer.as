@@ -62,6 +62,10 @@ package starling.extensions.defferedShading.display
 		private var lightBounds:Rectangle = new Rectangle();
 		private var ambientConstants:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
 		
+		// Occluders
+		
+		private var occluders:Vector.<DisplayObject> = new Vector.<DisplayObject>();
+		
 		// Misc		
 		
 		private var prepared:Boolean = false;
@@ -82,14 +86,36 @@ package starling.extensions.defferedShading.display
 		Public methods
 		---------------------------*/
 		
+		/**
+		 * Adds light. Only lights added to the container this way will be rendered.
+		 */
 		public function addLight(light:Light):void
 		{
 			lights.push(light);
 		}
 		
+		/**
+		 * Removes light, so it won`t be rendered.
+		 */
 		public function removeLight(light:Light):void
 		{
 			lights.splice(lights.indexOf(light), 1);
+		}
+		
+		/**
+		 * Adds occluder. Only occluders added this way will cast shadows.
+		 */
+		public function addOccluder(occluder:DisplayObject):void
+		{
+			occluders.push(occluder);
+		}
+		
+		/**
+		 * Removes occluder, so it won`t cast shadows anymore.
+		 */
+		public function removeOccluder(occluder:DisplayObject):void
+		{
+			occluders.splice(occluders.indexOf(occluder), 1);
 		}
 		
 		public override function dispose():void
@@ -185,7 +211,7 @@ package starling.extensions.defferedShading.display
 			support.renderPass = RenderPass.DEFERRED_MRT;
 			
 			support.clear();
-			super.render(support, parentAlpha);	
+			super.render(support, parentAlpha);
 			support.finishQuadBatch();
 			
 			/*----------------------------------

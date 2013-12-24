@@ -221,13 +221,11 @@ package starling.extensions.defferedShading.lights
 						'tex ft2, ft0.xy, fs1 <2d, clamp, linear, mipnone>',
 						
 						// Put specular power and specular intensity to ft0.zw
-						// Those are stored in alpha channel of depth and normal
-						// Also, multiply both by 256 to get original value
+						// Those are stored in yz of depth
+						// Also, unscale both appropriately to get original value
 						
-						'mov ft0.z, ft2.w',
-						'mul ft0.z, ft0.z, fc6.x',
-						'mov ft0.w, ft1.w',
-						'mul ft0.w, ft0.w, fc6.y',
+						'mul ft0.z, ft2.y, fc6.x',
+						'mul ft0.w, ft2.z, fc6.y',
 						
 						// Calculate pixel position in eye space
 						
@@ -276,7 +274,7 @@ package starling.extensions.defferedShading.lights
 						'pow ft5.z, ft5.z, ft0.z',
 						'min ft5.z, ft5.z, ft5.x',
 						
-						// Output.Color = ...colorMap *... lightColor * coneAttenuation * lightStrength
+						// Output.Color = lightColor * coneAttenuation * lightStrength
 						'mul ft6.xyz, ft5.yyy, fc3.xyz',
 						'mul ft6.xyz, ft6.xyz, fc2.y',
 						
@@ -385,5 +383,19 @@ package starling.extensions.defferedShading.lights
 			createBuffers();
 			registerPrograms();
 		}
+		
+		private var _castsShadows:Boolean = false;
+		
+		/**
+		 * This light will cast shadows if set to true.
+		 */
+		public function get castsShadows():Boolean
+		{ 
+			return _castsShadows;
+		}
+		public function set castsShadows(value:Boolean):void
+		{
+			_castsShadows = value;
+		}		
 	}
 }
