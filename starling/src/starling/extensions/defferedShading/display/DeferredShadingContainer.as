@@ -10,7 +10,6 @@ package starling.extensions.defferedShading.display
 	import flash.display3D.IndexBuffer3D;
 	import flash.display3D.Program3D;
 	import flash.display3D.VertexBuffer3D;
-	import flash.errors.IllegalOperationError;
 	import flash.geom.Rectangle;
 	
 	import starling.core.RenderSupport;
@@ -20,9 +19,13 @@ package starling.extensions.defferedShading.display
 	import starling.events.Event;
 	import starling.extensions.defferedShading.RenderPass;
 	import starling.extensions.defferedShading.Utils;
+	import starling.extensions.defferedShading.renderer_internal;
+	import starling.extensions.defferedShading.lights.AmbientLight;
 	import starling.extensions.defferedShading.lights.Light;
 	import starling.textures.Texture;
 
+	use namespace renderer_internal;
+	
 	/**
 	 * DeferredRenderer. Serves as a container for all other display objects
 	 * that should have lighting applied to them.
@@ -57,6 +60,7 @@ package starling.extensions.defferedShading.display
 		private var lights:Vector.<Light> = new Vector.<Light>();
 		private var stageBounds:Rectangle = new Rectangle();
 		private var lightBounds:Rectangle = new Rectangle();
+		private var ambientConstants:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
 		
 		// Misc		
 		
@@ -68,7 +72,6 @@ package starling.extensions.defferedShading.display
 		 */
 		public function DeferredShadingContainer()
 		{
-			super.addChild(_background = new Sprite());	
 			prepare();
 			
 			// Handle lost context			
@@ -122,8 +125,8 @@ package starling.extensions.defferedShading.display
 			overlayIndexBuffer.uploadFromVector(indices, 0, 6);			
 		
 			// Create render targets 
-			// FLOAT or HALF_FLOAT textures could be used to increase specular params precision
-			// No difference for normals or depth because those aren`t calculated on the fly
+			// FLOAT or HALF_FLOAT textures could be used to increase the precision of specular params
+			// No difference for normals or depth because those aren`t calculated at the run time
 			
 			diffuseRenderTarget = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
 			normalRenderTarget = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
@@ -144,17 +147,13 @@ package starling.extensions.defferedShading.display
 			renderExtended(support, parentAlpha);
 		}
 		
-		override public function addChild(child:DisplayObject):DisplayObject
-		{
-			throw new IllegalOperationError('Unsupported operation.'); 
-		}
-		
 		/*-----------------------------
 		Event handlers
 		-----------------------------*/
 		
 		private function onContextCreated(event:Event):void
 		{
+			prepared = false;
 			prepare();
 		}
 		
@@ -186,7 +185,7 @@ package starling.extensions.defferedShading.display
 			support.renderPass = RenderPass.DEFERRED_MRT;
 			
 			support.clear();
-			_background.render(support, parentAlpha);		
+			super.render(support, parentAlpha);	
 			support.finishQuadBatch();
 			
 			/*----------------------------------
@@ -211,8 +210,18 @@ package starling.extensions.defferedShading.display
 				support.clear(0x000000, 0.0);
 				context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ONE);   
 				
+				var ambientLight:AmbientLight;
+				
 				for each(var l:Light in lights)
 				{
+					// If there are multiple ambient lights - use the last one added
+					
+					if(l is AmbientLight)
+					{
+						ambientLight = l as AmbientLight;
+						continue;
+					}
+					
 					l.getBounds(stage, lightBounds);				
 					stageBounds.setTo(0, 0, stage.stageWidth, stage.stageHeight);
 					
@@ -258,8 +267,16 @@ package starling.extensions.defferedShading.display
 			context.setTextureAt(0, diffuseRenderTarget.base);
 			context.setTextureAt(1, lightPassRenderTarget.base);			
 			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, fragmentConstants);
-			context.setProgram(combinedResultProgram);                        
 			
+			if(ambientLight)
+			{
+				ambientConstants[0] = ambientLight._colorR * ambientLight.strength;
+				ambientConstants[1] = ambientLight._colorG * ambientLight.strength;
+				ambientConstants[2] = ambientLight._colorB * ambientLight.strength;
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 1, ambientConstants);
+			}
+			
+			context.setProgram(combinedResultProgram);			
 			context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ZERO); 
 			support.clear(0x000000, 1.0);
 			
@@ -279,12 +296,7 @@ package starling.extensions.defferedShading.display
 		Properties
 		---------------------------*/
 		
-		private var _background:Sprite;
-		
-		public function get background():Sprite 
-		{
-			return _background;
-		}
+		// ..
 		
 		/*---------------------------
 		Programs
@@ -303,8 +315,17 @@ package starling.extensions.defferedShading.display
 				[
 					'tex ft0, v0, fs0 <2d, clamp, linear, mipnone>',
 					'tex ft1, v0, fs1 <2d, clamp, linear, mipnone>',
+					
+					// Add ambient light
+					'add ft1.xyz, ft1.xyz, fc1.xyz',
+					
+					// Multiply diffuse map by lightmap
 					'mul ft2.xyz, ft0.xyz, ft1.xyz',
-					'add ft2.xyz, ft2.xyz, ft1.www',
+					
+					// Add specular
+					'add ft2.xyz, ft2.xyz, ft1.www',				
+					
+					// Set alpha as 1
 					'mov ft2.w, fc0.x',
 					'mov oc, ft2'
 				]

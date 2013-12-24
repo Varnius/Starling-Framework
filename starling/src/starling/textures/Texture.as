@@ -23,7 +23,7 @@ package starling.textures
     import starling.core.Starling;
     import starling.errors.AbstractClassError;
     import starling.errors.MissingContextError;
-    import starling.extensions.defferedShading.DeferredShadingProperties;
+    import starling.extensions.defferedShading.MaterialProperties;
     import starling.utils.Color;
     import starling.utils.VertexData;
     import starling.utils.getNextPowerOfTwo;
@@ -447,18 +447,18 @@ package starling.textures
         /** Indicates if the alpha values are premultiplied into the RGB values. */
         public function get premultipliedAlpha():Boolean { return false; }
 		
-		private var _deferredRendererTextures:DeferredShadingProperties;
+		private var _materialProperties:MaterialProperties;
 		
 		/**
-		 * Bonus textures used by deferred renderer to render normals/specular/etc.
+		 * Bonus material properties used by deferred renderer to render normals/specular/etc.
 		 */
-		public function get deferredRendererProperties():DeferredShadingProperties
+		public function get materialProperties():MaterialProperties
 		{ 
-			return _deferredRendererTextures;
+			return _materialProperties;
 		}
-		public function set deferredRendererProperties(value:DeferredShadingProperties):void
+		public function set materialProperties(value:MaterialProperties):void
 		{
-			_deferredRendererTextures = value;
+			_materialProperties = value;
 		}	
     }
 }

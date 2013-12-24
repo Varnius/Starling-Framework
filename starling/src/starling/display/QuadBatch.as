@@ -29,7 +29,7 @@ package starling.display
     import starling.core.starling_internal;
     import starling.errors.MissingContextError;
     import starling.events.Event;
-    import starling.extensions.defferedShading.DeferredShadingProperties;
+    import starling.extensions.defferedShading.MaterialProperties;
     import starling.extensions.defferedShading.RenderPass;
     import starling.extensions.defferedShading.Utils;
     import starling.filters.FragmentFilter;
@@ -257,21 +257,21 @@ package starling.display
 				
 				if (deferredPass)
 				{			
-					var normalMapPresent:Boolean = mTexture.deferredRendererProperties.normalMap;
-					var depthMapPresent:Boolean = mTexture.deferredRendererProperties.depthMap;
+					var normalMapPresent:Boolean = mTexture.materialProperties.normalMap;
+					var depthMapPresent:Boolean = mTexture.materialProperties.depthMap;
 					
 					// Set specular params constants, fc5
-					// Also, scale to fit into range of [0.0, 1.0] as all output is clipped
+					// Also, scale to fit into range of [0.0, 1.0] as all output is clipped when non-float RT is used
 					
-					specularParams[0] = mTexture.deferredRendererProperties.specularPower / DeferredShadingProperties.SPECULAR_POWER_SCALE;						
-					specularParams[1] = mTexture.deferredRendererProperties.specularIntensity / DeferredShadingProperties.SPECULAR_INTENSITY_SCALE;
+					specularParams[0] = mTexture.materialProperties.specularPower / MaterialProperties.SPECULAR_POWER_SCALE;						
+					specularParams[1] = mTexture.materialProperties.specularIntensity / MaterialProperties.SPECULAR_INTENSITY_SCALE;
 					
 					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, specularParams, 1);
 					
 					// Set samplers	
 					
-					context.setTextureAt(1, normalMapPresent ? mTexture.deferredRendererProperties.normalMap.base : Starling.current.defaultNormalMap.base);	
-					context.setTextureAt(2, depthMapPresent ? mTexture.deferredRendererProperties.depthMap.base : Starling.current.defaultDepthMap.base);
+					context.setTextureAt(1, normalMapPresent ? mTexture.materialProperties.normalMap.base : Starling.current.defaultNormalMap.base);	
+					context.setTextureAt(2, depthMapPresent ? mTexture.materialProperties.depthMap.base : Starling.current.defaultDepthMap.base);
 				}		
             }
 			

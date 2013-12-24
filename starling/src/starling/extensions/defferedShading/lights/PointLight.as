@@ -16,10 +16,13 @@ package starling.extensions.defferedShading.lights
 	import starling.display.DisplayObject;
 	import starling.errors.MissingContextError;
 	import starling.events.Event;
-	import starling.extensions.defferedShading.DeferredShadingProperties;
+	import starling.extensions.defferedShading.MaterialProperties;
 	import starling.extensions.defferedShading.RenderPass;
 	import starling.extensions.defferedShading.Utils;
+	import starling.extensions.defferedShading.renderer_internal;
 	import starling.utils.VertexData;
+	
+	use namespace renderer_internal;
 
 	/**
 	 * Represents a 360 degree light.
@@ -103,8 +106,8 @@ package starling.extensions.defferedShading.lights
 				var context:Context3D = Starling.context;
 				if (context == null) throw new MissingContextError();
 				
-				// apply the current blendmode
-				//support.applyBlendMode(false);
+				// Don`t apply regular blend mode
+				// support.applyBlendMode(false);
 				
 				// Set constants
 				
@@ -127,8 +130,8 @@ package starling.extensions.defferedShading.lights
 				attenuationConstants[1] = 1 / (attenuationConstants[0] + 1);
 				attenuationConstants[2] = 1 - attenuationConstants[1];
 				
-				specularParams[0] = DeferredShadingProperties.SPECULAR_POWER_SCALE;
-				specularParams[1] = DeferredShadingProperties.SPECULAR_INTENSITY_SCALE;
+				specularParams[0] = MaterialProperties.SPECULAR_POWER_SCALE;
+				specularParams[1] = MaterialProperties.SPECULAR_INTENSITY_SCALE;
 				
 				// activate program (shader) and set the required buffers / constants 
 				context.setProgram(Starling.current.getProgram(PROGRAM_NAME));
@@ -277,15 +280,14 @@ package starling.extensions.defferedShading.lights
 						'mul ft6.xyz, ft5.yyy, fc3.xyz',
 						'mul ft6.xyz, ft6.xyz, fc2.y',
 						
-						//'tex ft3, ft0.xy, fs2 <2d, clamp, linear, mipnone>',
-						//'mul ft6.xyz, ft6.xyz, ft3.xyz',
-						
 						// + (coneAttenuation * specular * specularStrength)
 						// And don`t apply specular here - move it to alpha channel of the output
+						// Also, multiply specular by light strength
 						
 						'mul ft7.x, ft5.y, ft5.z',
-						'mul ft7.x, ft7.x, ft0.w',
-						'mov ft6.w, ft7.x',					
+						'mul ft7.x, ft7.x, ft0.w',						
+						'mov ft6.w, ft7.x',
+						'mul ft6.w, ft6.w, fc2.y',
 						'mov oc, ft6'
 					]
 				);

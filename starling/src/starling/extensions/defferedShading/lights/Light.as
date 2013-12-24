@@ -1,6 +1,9 @@
 package starling.extensions.defferedShading.lights
 {
 	import starling.display.DisplayObject;
+	import starling.extensions.defferedShading.renderer_internal;
+	
+	use namespace renderer_internal;
 	
 	/**
 	 * Base for all types of lights.
@@ -8,7 +11,7 @@ package starling.extensions.defferedShading.lights
 	 */
 	public class Light extends DisplayObject
 	{		
-		public function Light(color:uint, strength:Number)
+		public function Light(color:uint, strength:Number = 1.0)
 		{
 			this.color = color;
 			this.strength = strength;
@@ -19,9 +22,9 @@ package starling.extensions.defferedShading.lights
 		-----------------------------*/
 		
 		protected var _color:uint;
-		protected var _colorR:Number;
-		protected var _colorG:Number;
-		protected var _colorB:Number;
+		renderer_internal var _colorR:Number;
+		renderer_internal var _colorG:Number;
+		renderer_internal var _colorB:Number;
 		
 		public function get color():uint
 		{ 
