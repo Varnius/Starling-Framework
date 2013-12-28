@@ -9,7 +9,7 @@ Deferred renderer currently supports:
 
 TODOs:
 
-* Ambient and cone lights.
+* Spotlights.
 * Dynamic 2D shadows.
 
 Example project can be found [here](https://github.com/Varnius/StarlingDynamicShadows2D)
