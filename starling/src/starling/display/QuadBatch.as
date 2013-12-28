@@ -846,12 +846,12 @@ package starling.display
 					'mov ft3.y, fc5.x',
 					'mov ft3.z, fc5.y',
 					
-					// Mask normal/depth map by diffuse map alpha
+					// Mask normal/depth maps by diffuse map alpha
 					// This is useful when user just passes rectangular single-color
 					// normal map and wants to use it for the area covered by diffuse color
-					'mov ft4.w, ft1.w',
+					'mul ft4, ft4, ft1.w',
 					'mov oc1, ft4',
-					'mov ft3.w, ft1.w',				
+					'mul ft3, ft3, ft1.w',				
 					
 					'mov oc2, ft3'
 				]
