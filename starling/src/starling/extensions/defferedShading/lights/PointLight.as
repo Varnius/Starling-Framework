@@ -283,7 +283,7 @@ package starling.extensions.defferedShading.lights
 						// Also, multiply specular by light strength
 						
 						'mul ft7.x, ft5.y, ft5.z',
-						'mul ft7.x, ft7.x, ft0.w',						
+						'mul ft7.x, ft7.x, ft0.w',
 						'mov ft6.w, ft7.x',
 						'mul ft6.w, ft6.w, fc2.y',
 						'mov oc, ft6'

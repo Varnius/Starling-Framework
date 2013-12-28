@@ -836,13 +836,23 @@ package starling.display
 			
 			var deferredFragmentProgramPart:String = Utils.joinProgramArray(
 				[
-					// Sample normal
-					'tex oc1, v1, fs1 <sampler_flags>',
-					// Sample depth
+					// Sample normal					
+					'tex ft4, v1, fs1 <sampler_flags>',
+					
+					// Sample depth					
 					'tex ft3, v1, fs2 <sampler_flags>',
-					// Set depth yz to specular power/intensity
+					
+					// Set depth yz to specular power/intensity					
 					'mov ft3.y, fc5.x',
 					'mov ft3.z, fc5.y',
+					
+					// Mask normal/depth map by diffuse map alpha
+					// This is useful when user just passes rectangular single-color
+					// normal map and wants to use it for the area covered by diffuse color
+					'mov ft4.w, ft1.w',
+					'mov oc1, ft4',
+					'mov ft3.w, ft1.w',				
+					
 					'mov oc2, ft3'
 				]
 			);

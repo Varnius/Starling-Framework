@@ -291,7 +291,8 @@ package starling.extensions.defferedShading.display
 			context.setVertexBufferAt(0, overlayVertexBuffer, 0, Context3DVertexBufferFormat.FLOAT_3);
 			context.setVertexBufferAt(1, overlayVertexBuffer, 3, Context3DVertexBufferFormat.FLOAT_2);                      
 			context.setTextureAt(0, diffuseRenderTarget.base);
-			context.setTextureAt(1, lightPassRenderTarget.base);			
+			context.setTextureAt(1, lightPassRenderTarget.base);
+			context.setTextureAt(2, depthRenderTarget.base);
 			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, fragmentConstants);
 			
 			if(ambientLight)
@@ -314,6 +315,7 @@ package starling.extensions.defferedShading.display
 			context.setVertexBufferAt(1, null);
 			context.setTextureAt(0, null);
 			context.setTextureAt(1, null);
+			context.setTextureAt(2, null);
 			
 			support.raiseDrawCount();
 		}
@@ -339,8 +341,10 @@ package starling.extensions.defferedShading.display
 		protected const FRAGMENT_SHADER:String =
 			Utils.joinProgramArray(
 				[
+					// Sample diffuse, lightmap and depth
 					'tex ft0, v0, fs0 <2d, clamp, linear, mipnone>',
 					'tex ft1, v0, fs1 <2d, clamp, linear, mipnone>',
+					'tex ft3, v0, fs2 <2d, clamp, linear, mipnone>',
 					
 					// Add ambient light
 					'add ft1.xyz, ft1.xyz, fc1.xyz',
@@ -350,6 +354,9 @@ package starling.extensions.defferedShading.display
 					
 					// Add specular
 					'add ft2.xyz, ft2.xyz, ft1.www',				
+					
+					// Multiply by depth value
+					'mul ft2.xyz, ft2.xyz, ft3.xxx',
 					
 					// Set alpha as 1
 					'mov ft2.w, fc0.x',
