@@ -4,6 +4,7 @@ package starling.extensions.defferedShading.lights
 	
 	import flash.display3D.Context3D;
 	import flash.display3D.Context3DProgramType;
+	import flash.display3D.Context3DTextureFormat;
 	import flash.display3D.Context3DVertexBufferFormat;
 	import flash.display3D.IndexBuffer3D;
 	import flash.display3D.VertexBuffer3D;
@@ -30,8 +31,9 @@ package starling.extensions.defferedShading.lights
 	 */
 	public class PointLight extends Light
 	{		
-		private static var POINT_LIGHT_PROGRAM:String = 'PointLightProgram';
-		private static var SHADOWMAP_PROGRAM:String = 'ShadowmapProgram';
+		private static var POINT_LIGHT_PROGRAM:String 				= 'PointLightProgram';
+		private static var POINT_LIGHT_PROGRAM_WITH_SHADOWS:String 	= 'PointLightProgramWithShadows';
+		private static var SHADOWMAP_PROGRAM:String 				= 'ShadowmapProgram';
 		
 		private var mNumEdges:int = 8;
 		private var excircleRadius:Number;
@@ -76,9 +78,6 @@ package starling.extensions.defferedShading.lights
 		private static var lightBounds:Vector.<Number> = new Vector.<Number>();
 		private static var shadowmapConstants:Vector.<Number> = new <Number>[Math.PI, Math.PI * 1.5, 0.0, 0.1];
 		private static var shadowmapConstants2:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
-
-		private var shadowMap:Texture;
-		private var shadowMapIndex:int;
 		
 		// Constants
 		
@@ -169,7 +168,7 @@ package starling.extensions.defferedShading.lights
 				
 				// Activate program (shader) and set the required buffers / constants 
 				
-				context.setProgram(Starling.current.getProgram(POINT_LIGHT_PROGRAM));
+				context.setProgram(Starling.current.getProgram(_castsShadows ? POINT_LIGHT_PROGRAM_WITH_SHADOWS : POINT_LIGHT_PROGRAM));
 				context.setVertexBufferAt(0, vertexBuffer, VertexData.POSITION_OFFSET, Context3DVertexBufferFormat.FLOAT_2);
 				context.setVertexBufferAt(1, vertexBuffer, VertexData.TEXCOORD_OFFSET, Context3DVertexBufferFormat.FLOAT_2); 
 				context.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 0, support.mvpMatrix3D, true);   
@@ -183,9 +182,13 @@ package starling.extensions.defferedShading.lights
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, attenuationConstants, 1);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, specularParams, 1);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 7, lightProps2, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 8, atan2Constants, 2);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 10, constants2, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 11, blurConstants, 3);
+				
+				if(_castsShadows)
+				{
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 8, atan2Constants, 2);
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 10, constants2, 1);
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 11, blurConstants, 3);
+				}				
 				
 				context.drawTriangles(indexBuffer, 0, mNumEdges);
 				
@@ -201,14 +204,9 @@ package starling.extensions.defferedShading.lights
 			support:RenderSupport,
 			occluders:Texture,
 			vertexBuffer:VertexBuffer3D,
-			indexBuffer:IndexBuffer3D,
-			shadowMap:Texture,
-			shadowMapIndex:int
+			indexBuffer:IndexBuffer3D
 		):void
-		{
-			this.shadowMap = shadowMap;
-			this.shadowMapIndex = shadowMapIndex;
-			
+		{			
 			var bounds:Rectangle = getBounds(stage, tmpBounds);
 			var context:Context3D = Starling.context;
 			
@@ -404,155 +402,7 @@ package starling.extensions.defferedShading.lights
 						'mov ft6.w, ft7.x',
 						'mul ft6.w, ft6.w, fc2.y',
 						
-						/*--------------------------
-						Render shadows
-						--------------------------*/				
-						
-						// It seems that rectangle textures cannot be sampled inside conditional atm
-						'tex ft10, ft0.xy, fs3 <2d, clamp, linear, nomip>',
-						
-						// Do shadow coef calculations if castsShadows property is true
-						// Shadow coef is a value in interval [0, 1]  where 0 means that pixel is completely in shadow
-						// Cannot compare const to const so move one to tmp register
-						'mov ft12.x, fc7.x',
-						
-						'ife ft12.x, fc0.y',		
-						
-							'mov ft11, v1',
-							
-							/*--------------------------------
-							Calculate atan2
-							--------------------------------*/
-							
-							// From: http://wonderfl.net/c/mS2W/
-							
-							'abs ft8, ft11' /* ft8 = |x|, |y| */,
-							/* sge, because dated AGALMiniAssembler does not have seq */
-							'sge ft8, ft11, ft8' /* ft8.zw are both =1 now, since ft11.zw were =0 */,
-							'add ft8.xyw, ft8.xyw, ft8.xyw',
-							'sub ft8.xy, ft8.xy, ft8.zz' /* ft8 = sgn(x), sgn(y), 1, 2 */,
-							'sub ft8.w, ft8.w, ft8.x' /* ft8.w = '(partSignX, 1.0)' = 2 - sgn(x) */,
-							'mul ft8.w, ft8.w, fc9.y' /* ft8.w = '(partSignX, 1.0) * 0.7853981634' */,
-							'mul ft8.z, ft8.y, ft11.y' /* ft8.z = 'y * sign' */,
-							'add ft8.z, ft8.z, fc9.x' /* ft8.z = 'y * sign, 2.220446049250313e-16' or 'absYandR' initial value */,
-							'mul ft9.x, ft8.x, ft8.z' /* ft9.x = 'signX * absYandR' */,
-							'sub ft9.x, ft11.x, ft9.x' /* ft9.x = '(x - signX * absYandR)' */,
-							'mul ft9.y, ft8.x, ft11.x' /* ft9.y = 'signX * x' */,
-							'add ft9.y, ft9.y, ft8.z' /* ft9.y = '(signX * x, absYandR)' */,
-							'div ft8.z, ft9.x, ft9.y' /* ft8.z = '(x - signX * absYandR) / (signX * x, absYandR)' or 'absYandR' final value */,
-							'mul ft9.x, ft8.z, ft8.z' /* ft9.x = 'absYandR * absYandR' */,
-							'mul ft9.x, ft9.x, fc9.z' /* ft9.x = '0.1821 * absYandR * absYandR' */,
-							'sub ft9.x, ft9.x, fc9.w' /* ft9.x = '(0.1821 * absYandR * absYandR - 0.9675)' */,
-							'mul ft9.x, ft9.x, ft8.z' /* ft9.x = '(0.1821 * absYandR * absYandR - 0.9675) * absYandR' */,
-							'add ft9.x, ft9.x, ft8.w' /* ft9.x = '(partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR' */,
-							'mul ft9.x, ft9.x, ft8.y' /* ft9.x = '((partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR) * sign' */,
-							/* compress -pi..pi to 0..1: (angle,pi)/(2*pi) */
-							'add ft9.x, ft9.x, fc8.z',
-							'div ft9.x, ft9.x, fc8.w',
-							
-							/*--------------------------------
-							Apply gaussian blur
-							--------------------------------*/
-							
-							// float blur = (1./resolution.x)  * smoothstep(0., 1., r);
-							// smoothstep = t * t * (3.0 - 2.0 * t), t = r
-							'mul ft11.x, fc0.z, ft20.x',
-							'sub ft11.x, fc10.x, ft11.x',
-							'mul ft11.x, ft11.x, ft20.x',
-							'mul ft11.x, ft11.x, ft20.x',
-							'mul ft11.x, ft11.x, fc2.z',
-							
-							// Clamp radius (is it really needed??)
-							//'sat ft11.x, ft20.x',
-							
-							// We`ll sum into ft12.x
-							// sum = 0
-							'mov ft12.x, fc0.w',
-							
-							// Sample multiple times for blur
-							// Must use ted instead of tex inside a branch of conditional, also mips must be enabled - wtf?				
-							// sum += sample(vec2(tc.x - 4.0*blur, tc.y), r) * 0.05;							
-							'mov ft13.x, ft9.x',
-							'mul ft13.y, ft11.x, fc12.w',
-							'sub ft13.x, ft13.x, ft13.y',
-							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc11.x',
-							'add ft12.x, ft12.x, ft13.x',
-							//sum += sample(vec2(tc.x - 3.0*blur, tc.y), r) * 0.09;
-							'mov ft13.x, ft9.x',
-							'mul ft13.y, ft11.x, fc12.z',
-							'sub ft13.x, ft13.x, ft13.y',
-							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc11.y',
-							'add ft12.x, ft12.x, ft13.x',
-							//sum += sample(vec2(tc.x - 2.0*blur, tc.y), r) * 0.12;
-							'mov ft13.x, ft9.x',
-							'mul ft13.y, ft11.x, fc12.y',
-							'sub ft13.x, ft13.x, ft13.y',
-							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc11.z',
-							'add ft12.x, ft12.x, ft13.x',
-							//sum += sample(vec2(tc.x - 1.0*blur, tc.y), r) * 0.15;
-							'mov ft13.x, ft9.x',
-							'mul ft13.y, ft11.x, fc12.x',
-							'sub ft13.x, ft13.x, ft13.y',
-							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc11.w',
-							'add ft12.x, ft12.x, ft13.x',
-							// sum += center * 0.16;
-							'ted ft14, ft9.xy, fs2 <2d, clamp, linear, mipnearest>',							
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc13.x',
-							'add ft12.x, ft12.x, ft13.x',
-							//sum += sample(vec2(tc.x + 1.0*blur, tc.y), r) * 0.15;
-							'mov ft13.x, ft9.x',
-							'mul ft13.y, ft11.x, fc12.x',
-							'add ft13.x, ft13.x, ft13.y',
-							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc11.w',
-							'add ft12.x, ft12.x, ft13.x',
-							//sum += sample(vec2(tc.x + 2.0*blur, tc.y), r) * 0.12;
-							'mov ft13.x, ft9.x',
-							'mul ft13.y, ft11.x, fc12.y',
-							'add ft13.x, ft13.x, ft13.y',
-							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc11.z',
-							'add ft12.x, ft12.x, ft13.x',
-							//sum += sample(vec2(tc.x + 3.0*blur, tc.y), r) * 0.09;
-							'mov ft13.x, ft9.x',
-							'mul ft13.y, ft11.x, fc12.z',
-							'add ft13.x, ft13.x, ft13.y',
-							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc11.y',
-							'add ft12.x, ft12.x, ft13.x',
-							//sum += sample(vec2(tc.x + 4.0*blur, tc.y), r) * 0.05;
-							'mov ft13.x, ft9.x',
-							'mul ft13.y, ft11.x, fc12.w',
-							'add ft13.x, ft13.x, ft13.y',
-							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
-							'sge ft13.x, ft20.x, ft14.x',
-							'mul ft13.x, ft13.x, fc11.x',
-							'add ft12.x, ft12.x, ft13.x',
-						
-							// Final coef
-							'sub ft12.x, fc0.y, ft12.x',
-	
-							/*--------------------------------
-							Result
-							--------------------------------*/
-							
-							// Draw shadow everywhere except above occluders
-							'ife ft10.x, fc0.y',
-								'mul ft6, ft6, ft12.x',
-							'eif',
-						'eif',						
+						'<shadows>',
 						
 						'mov oc, ft6'
 					]
@@ -562,9 +412,169 @@ package starling.extensions.defferedShading.lights
 			vertexProgramAssembler.assemble(Context3DProgramType.VERTEX, vertexProgramCode, 2);
 			
 			var fragmentProgramAssembler:AGALMiniAssembler = new AGALMiniAssembler();
-			fragmentProgramAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgramCode, 2);
+			fragmentProgramAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgramCode.replace('<shadows>', ''), 2);
 			
 			target.registerProgram(POINT_LIGHT_PROGRAM, vertexProgramAssembler.agalcode, fragmentProgramAssembler.agalcode);
+			
+			// Register point light program with shadows			
+			
+			var shadowsCode:String =
+				Utils.joinProgramArray(
+					[
+						/*--------------------------
+						Render shadows
+						--------------------------*/				
+						
+						// Sample occluders
+						'tex ft10, ft0.xy, fs3 <2d, clamp, linear, nomip>',
+						
+						// Do shadow coef calculations if castsShadows property is true
+						// Shadow coef is a value in interval [0, 1]  where 0 means that pixel is completely in shadow		
+						
+						'mov ft11, v1',
+						
+						/*--------------------------------
+						Calculate atan2
+						--------------------------------*/
+						
+						// From: http://wonderfl.net/c/mS2W/
+						
+						'abs ft8, ft11' /* ft8 = |x|, |y| */,
+						/* sge, because dated AGALMiniAssembler does not have seq */
+						'sge ft8, ft11, ft8' /* ft8.zw are both =1 now, since ft11.zw were =0 */,
+						'add ft8.xyw, ft8.xyw, ft8.xyw',
+						'sub ft8.xy, ft8.xy, ft8.zz' /* ft8 = sgn(x), sgn(y), 1, 2 */,
+						'sub ft8.w, ft8.w, ft8.x' /* ft8.w = '(partSignX, 1.0)' = 2 - sgn(x) */,
+						'mul ft8.w, ft8.w, fc9.y' /* ft8.w = '(partSignX, 1.0) * 0.7853981634' */,
+						'mul ft8.z, ft8.y, ft11.y' /* ft8.z = 'y * sign' */,
+						'add ft8.z, ft8.z, fc9.x' /* ft8.z = 'y * sign, 2.220446049250313e-16' or 'absYandR' initial value */,
+						'mul ft9.x, ft8.x, ft8.z' /* ft9.x = 'signX * absYandR' */,
+						'sub ft9.x, ft11.x, ft9.x' /* ft9.x = '(x - signX * absYandR)' */,
+						'mul ft9.y, ft8.x, ft11.x' /* ft9.y = 'signX * x' */,
+						'add ft9.y, ft9.y, ft8.z' /* ft9.y = '(signX * x, absYandR)' */,
+						'div ft8.z, ft9.x, ft9.y' /* ft8.z = '(x - signX * absYandR) / (signX * x, absYandR)' or 'absYandR' final value */,
+						'mul ft9.x, ft8.z, ft8.z' /* ft9.x = 'absYandR * absYandR' */,
+						'mul ft9.x, ft9.x, fc9.z' /* ft9.x = '0.1821 * absYandR * absYandR' */,
+						'sub ft9.x, ft9.x, fc9.w' /* ft9.x = '(0.1821 * absYandR * absYandR - 0.9675)' */,
+						'mul ft9.x, ft9.x, ft8.z' /* ft9.x = '(0.1821 * absYandR * absYandR - 0.9675) * absYandR' */,
+						'add ft9.x, ft9.x, ft8.w' /* ft9.x = '(partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR' */,
+						'mul ft9.x, ft9.x, ft8.y' /* ft9.x = '((partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR) * sign' */,
+						/* compress -pi..pi to 0..1: (angle,pi)/(2*pi) */
+						'add ft9.x, ft9.x, fc8.z',
+						'div ft9.x, ft9.x, fc8.w',
+						
+						/*--------------------------------
+						Apply gaussian blur
+						--------------------------------*/
+						
+						// float blur = (1./resolution.x)  * smoothstep(0., 1., r);
+						// smoothstep = t * t * (3.0 - 2.0 * t), t = r
+						'mul ft11.x, fc0.z, ft20.x',
+						'sub ft11.x, fc10.x, ft11.x',
+						'mul ft11.x, ft11.x, ft20.x',
+						'mul ft11.x, ft11.x, ft20.x',
+						'mul ft11.x, ft11.x, fc2.z',
+						
+						// Clamp radius (is it really needed??)
+						//'sat ft11.x, ft20.x',
+						
+						// We`ll sum into ft12.x
+						// sum = 0
+						'mov ft12.x, fc0.w',
+						
+						// Sample multiple times for blur
+						// Must use ted instead of tex inside a branch of conditional, also mips must be enabled - wtf?				
+						// sum += sample(vec2(tc.x - 4.0*blur, tc.y), r) * 0.05;							
+						'mov ft13.x, ft9.x',
+						'mul ft13.y, ft11.x, fc12.w',
+						'sub ft13.x, ft13.x, ft13.y',
+						'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc11.x',
+						'add ft12.x, ft12.x, ft13.x',
+						//sum += sample(vec2(tc.x - 3.0*blur, tc.y), r) * 0.09;
+						'mov ft13.x, ft9.x',
+						'mul ft13.y, ft11.x, fc12.z',
+						'sub ft13.x, ft13.x, ft13.y',
+						'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc11.y',
+						'add ft12.x, ft12.x, ft13.x',
+						//sum += sample(vec2(tc.x - 2.0*blur, tc.y), r) * 0.12;
+						'mov ft13.x, ft9.x',
+						'mul ft13.y, ft11.x, fc12.y',
+						'sub ft13.x, ft13.x, ft13.y',
+						'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc11.z',
+						'add ft12.x, ft12.x, ft13.x',
+						//sum += sample(vec2(tc.x - 1.0*blur, tc.y), r) * 0.15;
+						'mov ft13.x, ft9.x',
+						'mul ft13.y, ft11.x, fc12.x',
+						'sub ft13.x, ft13.x, ft13.y',
+						'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc11.w',
+						'add ft12.x, ft12.x, ft13.x',
+						// sum += center * 0.16;
+						'ted ft14, ft9.xy, fs2 <2d, clamp, linear, mipnearest>',							
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc13.x',
+						'add ft12.x, ft12.x, ft13.x',
+						//sum += sample(vec2(tc.x + 1.0*blur, tc.y), r) * 0.15;
+						'mov ft13.x, ft9.x',
+						'mul ft13.y, ft11.x, fc12.x',
+						'add ft13.x, ft13.x, ft13.y',
+						'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc11.w',
+						'add ft12.x, ft12.x, ft13.x',
+						//sum += sample(vec2(tc.x + 2.0*blur, tc.y), r) * 0.12;
+						'mov ft13.x, ft9.x',
+						'mul ft13.y, ft11.x, fc12.y',
+						'add ft13.x, ft13.x, ft13.y',
+						'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc11.z',
+						'add ft12.x, ft12.x, ft13.x',
+						//sum += sample(vec2(tc.x + 3.0*blur, tc.y), r) * 0.09;
+						'mov ft13.x, ft9.x',
+						'mul ft13.y, ft11.x, fc12.z',
+						'add ft13.x, ft13.x, ft13.y',
+						'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc11.y',
+						'add ft12.x, ft12.x, ft13.x',
+						//sum += sample(vec2(tc.x + 4.0*blur, tc.y), r) * 0.05;
+						'mov ft13.x, ft9.x',
+						'mul ft13.y, ft11.x, fc12.w',
+						'add ft13.x, ft13.x, ft13.y',
+						'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+						'sge ft13.x, ft20.x, ft14.x',
+						'mul ft13.x, ft13.x, fc11.x',
+						'add ft12.x, ft12.x, ft13.x',
+						
+						// Final coef
+						'sub ft12.x, fc0.y, ft12.x',
+						
+						/*--------------------------------
+						Result
+						--------------------------------*/
+						
+						// Draw shadow everywhere except pixels that overlap occluders
+						'ife ft10.x, fc0.y',
+							'mul ft6, ft6, ft12.x',
+						'eif',	
+					]
+				);
+			
+			vertexProgramAssembler = new AGALMiniAssembler();
+			vertexProgramAssembler.assemble(Context3DProgramType.VERTEX, vertexProgramCode, 2);
+			
+			fragmentProgramAssembler = new AGALMiniAssembler();
+			fragmentProgramAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgramCode.replace('<shadows>', shadowsCode), 2);
+			
+			target.registerProgram(POINT_LIGHT_PROGRAM_WITH_SHADOWS, vertexProgramAssembler.agalcode, fragmentProgramAssembler.agalcode);
 			
 			// Register shadowmap program
 			
@@ -657,7 +667,7 @@ package starling.extensions.defferedShading.lights
 							
 							// Check if the ray hit an occluder	(meaning current occluder map value = 0)
 							// Set distance of this pixel to current distance if it lower than current one
-							'ife ft3.x, fc2.w',
+							'ifl ft3.x, fc2.y',
 								'min ft4.x, ft4.x, ft0.y',
 								// break/return here would speed things a lot
 							'eif',
@@ -780,6 +790,24 @@ package starling.extensions.defferedShading.lights
 		{
 			super.castsShadows = value;
 			lightProps2[0] = value ? 1.0 : 0.0;
+			
+			if(value && !_shadowMap)
+			{
+				_shadowMap = Texture.empty(1024, 1, false, false, true, -1, Context3DTextureFormat.BGRA);
+			}
+			
+			if(!value && _shadowMap)
+			{
+				_shadowMap.dispose();
+				_shadowMap = null;
+			}
+		}
+		
+		private var _shadowMap:Texture;
+		
+		public function get shadowMap():Texture
+		{ 
+			return _shadowMap; 
 		}
 	}
 }

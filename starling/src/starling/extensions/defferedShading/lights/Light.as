@@ -28,9 +28,7 @@ package starling.extensions.defferedShading.lights
 			support:RenderSupport,
 			occluders:Texture,
 			vertexBuffer:VertexBuffer3D,
-			indexBuffer:IndexBuffer3D,
-			shadowMap:Texture,
-			shadowMapIndex:int
+			indexBuffer:IndexBuffer3D
 		):void
 		{
 			throw new Error('This method should be overriden in a subclass.');

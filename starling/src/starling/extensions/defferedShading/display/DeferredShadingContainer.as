@@ -24,6 +24,7 @@ package starling.extensions.defferedShading.display
 	import starling.extensions.defferedShading.renderer_internal;
 	import starling.extensions.defferedShading.lights.AmbientLight;
 	import starling.extensions.defferedShading.lights.Light;
+	import starling.extensions.defferedShading.lights.PointLight;
 	import starling.textures.Texture;
 	import starling.utils.Color;
 
@@ -59,8 +60,7 @@ package starling.extensions.defferedShading.display
 		
 		// Render targets for shadows
 		
-		public var occludersRT:Texture;		
-		public var shadowMapsRT:Texture;
+		public var occludersRT:Texture;
 		
 		// Lights
 		
@@ -137,7 +137,6 @@ package starling.extensions.defferedShading.display
 			depthRT.dispose();
 			lightPassRT.dispose();
 			occludersRT.dispose();
-			shadowMapsRT.dispose();
 			
 			overlayVertexBuffer.dispose();
 			overlayIndexBuffer.dispose();
@@ -171,8 +170,6 @@ package starling.extensions.defferedShading.display
 			depthRT = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
 			lightPassRT = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
 			occludersRT = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
-			// todo: change to single channel??
-			shadowMapsRT = Texture.empty(2048, 1, false, false, true, -1, Context3DTextureFormat.BGRA);
 			
 			MRTPassRenderTargets = new Vector.<Texture>();
 			MRTPassRenderTargets.push(diffuseRT, normalsRT, depthRT);
@@ -322,16 +319,6 @@ package starling.extensions.defferedShading.display
 			
 			support.renderPass = RenderPass.SHADOWMAP;
 			
-			tmpRenderTargets.length = 0;
-			tmpRenderTargets.push(shadowMapsRT, null, null);
-					
-			support.setRenderTargets(tmpRenderTargets, true);
-			context.clear(0.0, 0.0, 0.0, 1.0, 1.0);
-			context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ZERO);
-			context.setDepthTest(true, Context3DCompareMode.LESS_EQUAL);
-			
-			//var i:int = 0;
-			
 			for each(l in visibleLights)
 			{				
 				if(!l.castsShadows)
@@ -339,24 +326,27 @@ package starling.extensions.defferedShading.display
 					continue;
 				}
 				
-				//context.setScissorRectangle(sh
+				var pointLight:PointLight = l as PointLight;
 				
-				l.renderShadowMap(
-					support, 
-					occludersRT,
-					overlayVertexBuffer,
-					overlayIndexBuffer,
-					shadowMapsRT,
-					0
-				);
-				
-				//i++;
+				if(pointLight)
+				{
+					tmpRenderTargets.length = 0;
+					tmpRenderTargets.push(pointLight.shadowMap, null, null);					
+					support.setRenderTargets(tmpRenderTargets, true);
+					context.clear(0.0, 0.0, 0.0, 1.0, 1.0);
+					context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ZERO);
+					context.setDepthTest(true, Context3DCompareMode.LESS_EQUAL);
+					
+					l.renderShadowMap(
+						support, 
+						occludersRT,
+						overlayVertexBuffer,
+						overlayIndexBuffer
+					);
+				}				
 			}
 			
 			context.setDepthTest(false, Context3DCompareMode.ALWAYS);
-
-		
-		//context.setScissorRectangle(null);
 			
 			/*----------------------------------
 			Light pass
@@ -374,9 +364,7 @@ package starling.extensions.defferedShading.display
 				// Set previously rendered maps
 				
 				context.setTextureAt(0, normalsRT.base);
-				context.setTextureAt(1, depthRT.base);
-				context.setTextureAt(2, shadowMapsRT.base);
-				context.setTextureAt(3, occludersRT.base);
+				context.setTextureAt(1, depthRT.base);			
 				
 				// Clear RT
 				
@@ -385,25 +373,37 @@ package starling.extensions.defferedShading.display
 				
 				for each(l in visibleLights)
 				{
-					support.pushMatrix();
+					pointLight = l as PointLight;
 					
-					obj = l;
-					
-					while(obj != stage)
+					if(pointLight)
 					{
-						support.prependMatrix(obj.transformationMatrix);
-						obj = obj.parent;
-					}						
+						if(pointLight.castsShadows)
+						{
+							context.setTextureAt(2, pointLight.shadowMap.base);
+							context.setTextureAt(3, occludersRT.base);
+						}
+						
+						support.pushMatrix();
+						
+						obj = l;
+						
+						while(obj != stage)
+						{
+							support.prependMatrix(obj.transformationMatrix);
+							obj = obj.parent;
+						}						
+						
+						l.render(support, parentAlpha);
+						support.popMatrix();
+					}
 					
-					l.render(support, parentAlpha);
-					support.popMatrix();	
+					context.setTextureAt(3, null);
 				}
 				
 				// Don`t need to set it to null here
 				//context.setTextureAt(0, null);
 				context.setTextureAt(1, null);
 				context.setTextureAt(2, null);
-				context.setTextureAt(3, null);
 			}
 			
 			/*----------------------------------
