@@ -4,6 +4,7 @@ package starling.extensions.defferedShading.display
 	
 	import flash.display3D.Context3D;
 	import flash.display3D.Context3DBlendFactor;
+	import flash.display3D.Context3DCompareMode;
 	import flash.display3D.Context3DProgramType;
 	import flash.display3D.Context3DTextureFormat;
 	import flash.display3D.Context3DVertexBufferFormat;
@@ -15,6 +16,7 @@ package starling.extensions.defferedShading.display
 	import starling.core.RenderSupport;
 	import starling.core.Starling;
 	import starling.display.DisplayObject;
+	import starling.display.Quad;
 	import starling.display.Sprite;
 	import starling.events.Event;
 	import starling.extensions.defferedShading.RenderPass;
@@ -23,6 +25,7 @@ package starling.extensions.defferedShading.display
 	import starling.extensions.defferedShading.lights.AmbientLight;
 	import starling.extensions.defferedShading.lights.Light;
 	import starling.textures.Texture;
+	import starling.utils.Color;
 
 	use namespace renderer_internal;
 	
@@ -48,23 +51,30 @@ package starling.extensions.defferedShading.display
 		
 		// Render targets	
 		
-		private var renderTargets:Vector.<Texture>;
-		public var diffuseRenderTarget:Texture;
-		public var normalRenderTarget:Texture;
-		public var depthRenderTarget:Texture;
-		public var lightPassRenderTarget:Texture;
+		private var MRTPassRenderTargets:Vector.<Texture>;
+		public var diffuseRT:Texture;
+		public var normalsRT:Texture;
+		public var depthRT:Texture;
+		public var lightPassRT:Texture;
+		
+		// Render targets for shadows
+		
+		public var occludersRT:Texture;		
+		public var shadowMapsRT:Texture;
 		
 		// Lights
 		
-		private var lightPassRenderTargets:Vector.<Texture> = new Vector.<Texture>();
+		private var tmpRenderTargets:Vector.<Texture> = new Vector.<Texture>();
 		private var lights:Vector.<Light> = new Vector.<Light>();
 		private var stageBounds:Rectangle = new Rectangle();
-		private var lightBounds:Rectangle = new Rectangle();
+		private var tmpBounds:Rectangle = new Rectangle();
 		private var ambientConstants:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
+		private var visibleLights:Vector.<Light> = new Vector.<Light>
 		
-		// Occluders
+		// Shadows
 		
 		private var occluders:Vector.<DisplayObject> = new Vector.<DisplayObject>();
+		private var shadowMapRect:Rectangle = new Rectangle();		
 		
 		// Misc		
 		
@@ -122,10 +132,12 @@ package starling.extensions.defferedShading.display
 		{
 			Starling.current.removeEventListener(Event.CONTEXT3D_CREATE, onContextCreated);
 			
-			for each(var rt:Texture in renderTargets)
-			{
-				rt.dispose();
-			}
+			diffuseRT.dispose();
+			normalsRT.dispose();
+			depthRT.dispose();
+			lightPassRT.dispose();
+			occludersRT.dispose();
+			shadowMapsRT.dispose();
 			
 			overlayVertexBuffer.dispose();
 			overlayIndexBuffer.dispose();
@@ -148,23 +160,26 @@ package starling.extensions.defferedShading.display
 			overlayVertexBuffer = context.createVertexBuffer(4, 5);
 			overlayVertexBuffer.uploadFromVector(vertices, 0, 4);
 			overlayIndexBuffer = context.createIndexBuffer(6);
-			overlayIndexBuffer.uploadFromVector(indices, 0, 6);			
+			overlayIndexBuffer.uploadFromVector(indices, 0, 6);
 		
 			// Create render targets 
 			// FLOAT or HALF_FLOAT textures could be used to increase the precision of specular params
 			// No difference for normals or depth because those aren`t calculated at the run time
 			
-			diffuseRenderTarget = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
-			normalRenderTarget = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
-			depthRenderTarget = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
-			lightPassRenderTarget = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
+			diffuseRT = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
+			normalsRT = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
+			depthRT = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
+			lightPassRT = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
+			occludersRT = Texture.empty(w, h, false, false, true, -1, Context3DTextureFormat.BGRA);
+			// todo: change to single channel??
+			shadowMapsRT = Texture.empty(2048, 1, false, false, true, -1, Context3DTextureFormat.BGRA);
 			
-			renderTargets = new Vector.<Texture>();
-			renderTargets.push(diffuseRenderTarget, normalRenderTarget, depthRenderTarget);
+			MRTPassRenderTargets = new Vector.<Texture>();
+			MRTPassRenderTargets.push(diffuseRT, normalsRT, depthRT);
 			
 			// Create programs
 			
-			combinedResultProgram = assembler.assemble2(context, 2, VERTEX_SHADER, FRAGMENT_SHADER);			
+			combinedResultProgram = assembler.assemble2(context, 2, VERTEX_SHADER, FRAGMENT_SHADER);
 			prepared = true;
 		}
 		
@@ -194,25 +209,154 @@ package starling.extensions.defferedShading.display
 				prepare();
 			}			
 			
+			// Find visible lights and ambient light
+			
+			visibleLights.length = 0;
+			var ambientLight:AmbientLight;
+			stageBounds.setTo(0, 0, stage.stageWidth, stage.stageHeight);
+			
+			for each(var l:Light in lights)
+			{
+				// If there are multiple ambient lights - use the last one added
+				
+				if(!l.visible)
+				{
+					continue;
+				}
+				
+				if(l is AmbientLight)
+				{
+					ambientLight = l as AmbientLight;
+					continue;
+				}
+				
+				l.getBounds(stage, tmpBounds);
+				
+				if(stageBounds.containsRect(tmpBounds) || stageBounds.intersects(tmpBounds))
+				{
+					visibleLights.push(l);
+				}
+			}
+			
 			/*----------------------------------
 			MRT pass
 			----------------------------------*/
 			
 			var context:Context3D = Starling.context;
+			var isVisible:Boolean;
 			
 			prevRenderTargets.length = 0;
 			prevRenderTargets.push(support.renderTarget, null, null);
 
 			// Set render targets, clear them and render background only
 			
-			support.renderTargets = renderTargets;
+			support.setRenderTargets(MRTPassRenderTargets);
 			
 			var prevPass:String = support.renderPass;
-			support.renderPass = RenderPass.DEFERRED_MRT;
+			support.renderPass = RenderPass.MRT;
 			
 			support.clear();
 			super.render(support, parentAlpha);
 			support.finishQuadBatch();
+			
+			/*----------------------------------
+			Shadows - occluder pass
+			----------------------------------*/
+			// todo: maybe move this to mrt pass??? (as a single channel in depth target)
+			
+			support.renderPass = RenderPass.OCCLUDERS;
+			
+			tmpRenderTargets.length = 0;
+			tmpRenderTargets.push(occludersRT, null, null);
+			
+			support.setRenderTargets(tmpRenderTargets);
+			support.clear(0xFFFFFF, 1.0);
+			
+			for each(var o:DisplayObject in occluders)
+			{
+				o.getBounds(stage, tmpBounds);				
+				isVisible = stageBounds.containsRect(tmpBounds) || stageBounds.intersects(tmpBounds);
+				
+				// Render only visible occluders
+				
+				if(isVisible)
+				{
+					support.pushMatrix();
+					
+					obj = o;
+					
+					while(obj != stage)
+					{
+						support.prependMatrix(obj.transformationMatrix);
+						obj = obj.parent;
+					}						
+					
+					// Tint quads/images with black
+					// Custom display objects should check if support.renderPass == RenderPass.OCCLUDERS
+					// in their render method and render tinted version of an object.
+					
+					var q:Quad = o as Quad;
+					
+					if(q)
+					{
+						q.color = Color.BLACK;
+					}
+					
+					o.render(support, parentAlpha);
+					support.popMatrix();
+					
+					if(q)
+					{
+						q.color = Color.WHITE;
+					}
+				}
+			}			
+			
+			/*----------------------------------
+			Shadows - shadowmap pass
+			----------------------------------*/
+			
+			var obj:DisplayObject;
+			
+			// Max shadow limit is height of shadowmap texture (currently 256)
+			
+			support.renderPass = RenderPass.SHADOWMAP;
+			
+			tmpRenderTargets.length = 0;
+			tmpRenderTargets.push(shadowMapsRT, null, null);
+					
+			support.setRenderTargets(tmpRenderTargets, true);
+			context.clear(0.0, 0.0, 0.0, 1.0, 1.0);
+			context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ZERO);
+			context.setDepthTest(true, Context3DCompareMode.LESS_EQUAL);
+			
+			//var i:int = 0;
+			
+			for each(l in visibleLights)
+			{				
+				if(!l.castsShadows)
+				{
+					continue;
+				}
+				
+				//context.setScissorRectangle(sh
+				
+				l.renderShadowMap(
+					support, 
+					occludersRT,
+					overlayVertexBuffer,
+					overlayIndexBuffer,
+					shadowMapsRT,
+					0
+				);
+				
+				//i++;
+			}
+			
+			context.setDepthTest(false, Context3DCompareMode.ALWAYS);
+
+		
+		//context.setScissorRectangle(null);
 			
 			/*----------------------------------
 			Light pass
@@ -220,79 +364,64 @@ package starling.extensions.defferedShading.display
 			
 			if(lights.length)
 			{				
-				lightPassRenderTargets.length = 0;
-				lightPassRenderTargets.push(lightPassRenderTarget, null, null);
+				support.renderPass = RenderPass.LIGHTS;
 				
-				support.renderTargets = lightPassRenderTargets;
-				support.renderPass = RenderPass.DEFERRED_LIGHTS;
+				tmpRenderTargets.length = 0;
+				tmpRenderTargets.push(lightPassRT, null, null);
+				
+				support.setRenderTargets(tmpRenderTargets);		
 				
 				// Set previously rendered maps
 				
-				context.setTextureAt(0, normalRenderTarget.base);
-				context.setTextureAt(1, depthRenderTarget.base);
+				context.setTextureAt(0, normalsRT.base);
+				context.setTextureAt(1, depthRT.base);
+				context.setTextureAt(2, shadowMapsRT.base);
+				context.setTextureAt(3, occludersRT.base);
 				
 				// Clear RT
 				
 				support.clear(0x000000, 0.0);
-				context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ONE);   
+				context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ONE);
 				
-				var ambientLight:AmbientLight;
-				
-				for each(var l:Light in lights)
+				for each(l in visibleLights)
 				{
-					// If there are multiple ambient lights - use the last one added
+					support.pushMatrix();
 					
-					if(l is AmbientLight)
+					obj = l;
+					
+					while(obj != stage)
 					{
-						ambientLight = l as AmbientLight;
-						continue;
-					}
+						support.prependMatrix(obj.transformationMatrix);
+						obj = obj.parent;
+					}						
 					
-					l.getBounds(stage, lightBounds);				
-					stageBounds.setTo(0, 0, stage.stageWidth, stage.stageHeight);
-					
-					var isVisible:Boolean = stageBounds.containsRect(lightBounds) || stageBounds.intersects(lightBounds);
-					
-					// Render only visible lights
-					
-					if(isVisible)
-					{
-						support.pushMatrix();
-						
-						var obj:DisplayObject = l;
-						
-						while(obj != stage)
-						{
-							support.prependMatrix(obj.transformationMatrix);
-							obj = obj.parent;
-						}						
-						
-						l.render(support, parentAlpha);
-						support.popMatrix();
-					}
+					l.render(support, parentAlpha);
+					support.popMatrix();	
 				}
 				
 				// Don`t need to set it to null here
 				//context.setTextureAt(0, null);
 				context.setTextureAt(1, null);
-			}		
+				context.setTextureAt(2, null);
+				context.setTextureAt(3, null);
+			}
 			
 			/*----------------------------------
 			Render final shading
 			----------------------------------*/
 			
-			// Set previous pass	
+			// Set previous pass
 			
 			support.renderPass = prevPass;			
-			support.renderTargets = prevRenderTargets;
+			support.setRenderTargets(prevRenderTargets);
 
 			// Prepare to render combined result
 			
 			context.setVertexBufferAt(0, overlayVertexBuffer, 0, Context3DVertexBufferFormat.FLOAT_3);
 			context.setVertexBufferAt(1, overlayVertexBuffer, 3, Context3DVertexBufferFormat.FLOAT_2);                      
-			context.setTextureAt(0, diffuseRenderTarget.base);
-			context.setTextureAt(1, lightPassRenderTarget.base);
-			context.setTextureAt(2, depthRenderTarget.base);
+			context.setTextureAt(0, diffuseRT.base);
+			context.setTextureAt(1, lightPassRT.base);
+			context.setTextureAt(2, depthRT.base);
 			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, fragmentConstants);
 			
 			if(ambientLight)
@@ -338,6 +467,9 @@ package starling.extensions.defferedShading.display
 				]
 			);
 		
+		/**
+		 * Combines previously rendered maps.
+		 */
 		protected const FRAGMENT_SHADER:String =
 			Utils.joinProgramArray(
 				[
@@ -357,7 +489,7 @@ package starling.extensions.defferedShading.display
 					
 					// Multiply by depth value
 					'mul ft2.xyz, ft2.xyz, ft3.xxx',
-					
+
 					// Set alpha as 1
 					'mov ft2.w, fc0.x',
 					'mov oc, ft2'

@@ -237,7 +237,7 @@ package starling.core
 		 * Sets multiple render targets. Note: input vector cannot be empty.
 		 * Instead, it should be filled with nulls for RTs that won't be used.
 		 */
-		public function set renderTargets(targets:Vector.<Texture>):void 
+		public function setRenderTargets(targets:Vector.<Texture>, enableDepthAndStencil:Boolean = false):void 
 		{			
 			mRenderTarget = targets[0];
 			mRenderTargets = targets;
@@ -253,7 +253,7 @@ package starling.core
 				
 				if(i != 0 || targets[i] != null)
 				{
-					context.setRenderToTexture(targets[i] ? targets[i].base : null, false, 0, 0, i);
+					context.setRenderToTexture(targets[i] ? targets[i].base : null, enableDepthAndStencil, 0, 0, i);
 				}				
 			}
 			

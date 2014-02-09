@@ -6,7 +6,9 @@ package starling.extensions.defferedShading
 	public class RenderPass
 	{
 		public static const NORMAL:String = 'Normal';
-		public static const DEFERRED_MRT:String = 'DeferredMRT';
-		public static const DEFERRED_LIGHTS:String = 'DeferredLights';
+		public static const MRT:String = 'MRT';
+		public static const LIGHTS:String = 'Lights';
+		public static const OCCLUDERS:String = 'Occluders';
+		public static const SHADOWMAP:String = 'Shadowmap';
 	}
 }

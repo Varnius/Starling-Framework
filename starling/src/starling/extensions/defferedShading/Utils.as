@@ -5,7 +5,7 @@ package starling.extensions.defferedShading
 	{
 		public static function joinProgramArray(array:Array):String
 		{
-			return array.join('\n');
+			return array.join('\n') + '\n';
 		}
 	}
 }

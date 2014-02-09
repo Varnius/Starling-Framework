@@ -20,20 +20,22 @@ package starling.extensions.defferedShading.lights
 	import starling.extensions.defferedShading.RenderPass;
 	import starling.extensions.defferedShading.Utils;
 	import starling.extensions.defferedShading.renderer_internal;
+	import starling.textures.Texture;
 	import starling.utils.VertexData;
 	
 	use namespace renderer_internal;
-
+	
 	/**
-	 * Represents a 360 degree light.
+	 * Represents an omnidirectional light.
 	 */
 	public class PointLight extends Light
 	{		
-		private static var PROGRAM_NAME:String = 'PointLight';
+		private static var POINT_LIGHT_PROGRAM:String = 'PointLightProgram';
+		private static var SHADOWMAP_PROGRAM:String = 'ShadowmapProgram';
 		
-		private var mNumEdges:int = 6;
-		private var realRadius:Number;
-
+		private var mNumEdges:int = 8;
+		private var excircleRadius:Number;
+		
 		// Geometry data
 		
 		private var vertexData:VertexData;
@@ -41,21 +43,47 @@ package starling.extensions.defferedShading.lights
 		private var indexData:Vector.<uint>;
 		private var indexBuffer:IndexBuffer3D;
 		
-		// Helper objects
+		// Helpers
 		
 		private static var sHelperMatrix:Matrix = new Matrix();
 		private static var position:Point = new Point();
 		private static var sRenderAlpha:Vector.<Number> = new <Number>[1.0, 1.0, 1.0, 1.0];
+		private static var tmpBounds:Rectangle = new Rectangle();
 		
-		// Constants
+		// Lightmap
 		
 		private static var constants:Vector.<Number> = new <Number>[0.5, 1.0, 2.0, 0.0];
+		private static var constants2:Vector.<Number> = new <Number>[3.0, 0.0, 0.0, 0.0];
 		private static var lightProps:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
+		private static var lightProps2:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
 		private static var lightColor:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
 		private static var halfVec:Vector.<Number> = new <Number>[0.0, 0.0, 1.0, 0.0];
 		private static var lightPosition:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
 		private static var attenuationConstants:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
 		private static var specularParams:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
+		private static var atan2Constants:Vector.<Number> = new <Number>[
+			0.5, 0.5, Math.PI, 2 * Math.PI, 
+			2.220446049250313e-16, 0.7853981634, 0.1821, 0.9675, // atan2 magic numbers
+		];
+		private static var blurConstants:Vector.<Number> = new <Number>[
+			0.05, 0.09, 0.12, 0.15, 
+			1.0, 2.0, 3.0, 4.0,
+			0.18, -1.0, 0.0, 0.0
+		];
+		
+		// Shadowmap
+		
+		private static var lightBounds:Vector.<Number> = new Vector.<Number>();
+		private static var shadowmapConstants:Vector.<Number> = new <Number>[Math.PI, Math.PI * 1.5, 0.0, 0.1];
+		private static var shadowmapConstants2:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
+
+		private var shadowMap:Texture;
+		private var shadowMapIndex:int;
+		
+		// Constants
+		
+		private static var PIXELS_PER_DRAW_CALL:int;
+		private const OPCODE_LIMIT:int = 1024;
 		
 		public function PointLight(color:uint = 0xFFFFFF, strength:Number = 1.0, radius:Number = 50, attenuation:Number = 15)
 		{
@@ -89,9 +117,12 @@ package starling.extensions.defferedShading.lights
 			return vertexData.getBounds(transformationMatrix, 0, -1, resultRect);
 		}
 		
+		/**
+		 * Renders light to lightmap.
+		 */
 		public override function render(support:RenderSupport, alpha:Number):void
 		{
-			if(support.renderPass == RenderPass.DEFERRED_LIGHTS)
+			if(support.renderPass == RenderPass.LIGHTS)
 			{
 				// always call this method when you write custom rendering code!
 				// it causes all previously batched quads/images to render.
@@ -117,10 +148,13 @@ package starling.extensions.defferedShading.lights
 				lightPosition[1] = position.y;
 				lightPosition[2] = stage.stageWidth;
 				lightPosition[3] = stage.stageHeight;
-					
+				
 				lightProps[0] = _radius;
 				lightProps[1] = _strength;
+				lightProps[2] = 1 / _radius;
 				lightProps[3] = _radius * _radius;
+				
+				lightProps2[0] = _castsShadows ? 1.0 : 0.0;
 				
 				lightColor[0] = _colorR;
 				lightColor[1] = _colorG;
@@ -133,10 +167,14 @@ package starling.extensions.defferedShading.lights
 				specularParams[0] = MaterialProperties.SPECULAR_POWER_SCALE;
 				specularParams[1] = MaterialProperties.SPECULAR_INTENSITY_SCALE;
 				
-				// activate program (shader) and set the required buffers / constants 
-				context.setProgram(Starling.current.getProgram(PROGRAM_NAME));
-				context.setVertexBufferAt(0, vertexBuffer, VertexData.POSITION_OFFSET, Context3DVertexBufferFormat.FLOAT_2); 
-				context.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 0, support.mvpMatrix3D, true);            
+				// Activate program (shader) and set the required buffers / constants 
+				
+				context.setProgram(Starling.current.getProgram(POINT_LIGHT_PROGRAM));
+				context.setVertexBufferAt(0, vertexBuffer, VertexData.POSITION_OFFSET, Context3DVertexBufferFormat.FLOAT_2);
+				context.setVertexBufferAt(1, vertexBuffer, VertexData.TEXCOORD_OFFSET, Context3DVertexBufferFormat.FLOAT_2); 
+				context.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 0, support.mvpMatrix3D, true);   
+				context.setProgramConstantsFromVector(Context3DProgramType.VERTEX, 4, constants, 1);
+				
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, constants, 1);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 1, lightPosition, 1);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 2, lightProps, 1);
@@ -144,14 +182,82 @@ package starling.extensions.defferedShading.lights
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 4, halfVec, 1);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, attenuationConstants, 1);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, specularParams, 1);
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 7, lightProps2, 1);
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 8, atan2Constants, 2);
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 10, constants2, 1);
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 11, blurConstants, 3);
 				
-				// finally: draw the object!
 				context.drawTriangles(indexBuffer, 0, mNumEdges);
 				
-				// reset buffers
 				context.setVertexBufferAt(0, null);
 				context.setVertexBufferAt(1, null);
 			}			
+		}
+		
+		/**
+		 * Renders shadow map for this light.
+		 */
+		override public function renderShadowMap(
+			support:RenderSupport,
+			occluders:Texture,
+			vertexBuffer:VertexBuffer3D,
+			indexBuffer:IndexBuffer3D,
+			shadowMap:Texture,
+			shadowMapIndex:int
+		):void
+		{
+			this.shadowMap = shadowMap;
+			this.shadowMapIndex = shadowMapIndex;
+			
+			var bounds:Rectangle = getBounds(stage, tmpBounds);
+			var context:Context3D = Starling.context;
+			
+			// Split shadowmap generation to multiple draws as AGAL don't support loops yet
+			// and opcode limit is 1025 (at least on my M9600GT) :~
+			// Offset sampling coords by half-texel to sample exactly at the middle of each texel
+			
+			// Calculate start coordinates and step sizes
+			// vStart will be recalculated before each draw call
+			
+			var uStart:Number = (bounds.x / stage.stageWidth) + (1 / bounds.width) * 0.5;
+			var vStart:Number = (bounds.y / stage.stageHeight) + (1 / bounds.height) * 0.5;			
+			var uWidth:Number = bounds.width / stage.stageWidth;
+			var vHeight:Number = bounds.height / stage.stageHeight;
+			var numBlocks:Number = Math.ceil(radius / PIXELS_PER_DRAW_CALL);			
+			var vCurrentBlockOffset:Number = PIXELS_PER_DRAW_CALL;
+			
+			// Set constants
+			
+			lightBounds[0] = uStart;
+			lightBounds[1] = vStart;
+			lightBounds[2] = uWidth;
+			lightBounds[3] = vHeight;
+			
+			shadowmapConstants2[0] = bounds.height;
+			shadowmapConstants2[2] = radius;
+			shadowmapConstants2[3] = 1 / bounds.height * 0.5;
+			
+			context.setVertexBufferAt(0, vertexBuffer, 0, Context3DVertexBufferFormat.FLOAT_3);                 
+			context.setTextureAt(0, occluders.base);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, lightBounds);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 1, shadowmapConstants);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 2, constants);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 3, shadowmapConstants2);
+			
+			context.setProgram(Starling.current.getProgram(SHADOWMAP_PROGRAM));
+			
+			for(var i:int = 0; i < numBlocks; i++)
+			{
+				shadowmapConstants2[1] = vCurrentBlockOffset * i;		
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 3, shadowmapConstants2);
+				context.drawTriangles(indexBuffer);
+				support.raiseDrawCount();
+			}			
+			
+			// Clean up
+			
+			context.setVertexBufferAt(0, null);
+			context.setTextureAt(0, null);		
 		}
 		
 		/*-----------------------------
@@ -169,12 +275,14 @@ package starling.extensions.defferedShading.lights
 		Helpers
 		-----------------------------*/
 		
-		private static function registerPrograms():void
+		private function registerPrograms():void
 		{
 			var target:Starling = Starling.current;
 			
-			if(target.hasProgram(PROGRAM_NAME))
-				return; // already registered
+			if(target.hasProgram(POINT_LIGHT_PROGRAM))
+			{
+				return;
+			}				
 			
 			// va0 - position
 			// vc0 - mvpMatrix (occupies 4 vectors, vc0 - vc3)			
@@ -184,17 +292,25 @@ package starling.extensions.defferedShading.lights
 					[
 						'm44 vt0, va0, vc0',
 						'mov op, vt0',
-						'mov v0, vt0'
+						'mov v0, vt0',						
+						'mov v1, va1'
 					]
 				);		
 			
 			// fc0 - constants [0.5, 1, 2, 0]
 			// fc1 - light position in eye coordinates, screen width/height [x, y, screenWidth, screenHeight]
-			// fc2 - light properties [radius, strength, 0, radius^2]
+			// fc2 - light properties [radius, strength, 1 / radius, radius^2]
 			// fc3 - light color [r, g, b, 0]
 			// fc4 - halfVec [0, 0, 1, 0]
 			// fc5 - attenuation constants [0, 0, 0, att_s]
 			// fc6 - specular param scale values [specularPowerScale, specularIntensityScale, 0, 0]
+			// fc7 - [castsShadows, 0, 0, 0]
+			// fc8 - [1.0, 0.0, PI, 2PI]
+			// fc9 - [1e-10, 0.5PI, 0.0, 0.0]
+			// fc10 - constants2 [3, 0, 0, 0]
+			// fc11 - blur constants [0.05, 0.09, 0.12, 0.15]
+			// fc12 - blur constants [1, 2, 3, 4]
+			// fc13 - blur constants [0.16, -1, 0, 0]
 			
 			var fragmentProgramCode:String =
 				Utils.joinProgramArray(
@@ -240,6 +356,7 @@ package starling.extensions.defferedShading.lights
 						'pow ft7.y, ft3.y, fc0.z',
 						'add ft7.x, ft7.x, ft7.y',
 						'sqt ft7.x, ft7.x',
+						'div ft20.x, ft7.x, fc2.x', // save for shadow calculations
 						
 						// float3 lightDirNorm = normalize(lightDirection);
 						'nrm ft4.xyz, ft3.xyz',
@@ -286,36 +403,304 @@ package starling.extensions.defferedShading.lights
 						'mul ft7.x, ft7.x, ft0.w',
 						'mov ft6.w, ft7.x',
 						'mul ft6.w, ft6.w, fc2.y',
+						
+						/*--------------------------
+						Render shadows
+						--------------------------*/				
+						
+						// It seems that rectangle textures cannot be sampled inside conditional atm
+						'tex ft10, ft0.xy, fs3 <2d, clamp, linear, nomip>',
+						
+						// Do shadow coef calculations if castsShadows property is true
+						// Shadow coef is a value in interval [0, 1]  where 0 means that pixel is completely in shadow
+						// Cannot compare const to const so move one to tmp register
+						'mov ft12.x, fc7.x',
+						
+						'ife ft12.x, fc0.y',		
+						
+							'mov ft11, v1',
+							
+							/*--------------------------------
+							Calculate atan2
+							--------------------------------*/
+							
+							// From: http://wonderfl.net/c/mS2W/
+							
+							'abs ft8, ft11' /* ft8 = |x|, |y| */,
+							/* sge, because dated AGALMiniAssembler does not have seq */
+							'sge ft8, ft11, ft8' /* ft8.zw are both =1 now, since ft11.zw were =0 */,
+							'add ft8.xyw, ft8.xyw, ft8.xyw',
+							'sub ft8.xy, ft8.xy, ft8.zz' /* ft8 = sgn(x), sgn(y), 1, 2 */,
+							'sub ft8.w, ft8.w, ft8.x' /* ft8.w = '(partSignX, 1.0)' = 2 - sgn(x) */,
+							'mul ft8.w, ft8.w, fc9.y' /* ft8.w = '(partSignX, 1.0) * 0.7853981634' */,
+							'mul ft8.z, ft8.y, ft11.y' /* ft8.z = 'y * sign' */,
+							'add ft8.z, ft8.z, fc9.x' /* ft8.z = 'y * sign, 2.220446049250313e-16' or 'absYandR' initial value */,
+							'mul ft9.x, ft8.x, ft8.z' /* ft9.x = 'signX * absYandR' */,
+							'sub ft9.x, ft11.x, ft9.x' /* ft9.x = '(x - signX * absYandR)' */,
+							'mul ft9.y, ft8.x, ft11.x' /* ft9.y = 'signX * x' */,
+							'add ft9.y, ft9.y, ft8.z' /* ft9.y = '(signX * x, absYandR)' */,
+							'div ft8.z, ft9.x, ft9.y' /* ft8.z = '(x - signX * absYandR) / (signX * x, absYandR)' or 'absYandR' final value */,
+							'mul ft9.x, ft8.z, ft8.z' /* ft9.x = 'absYandR * absYandR' */,
+							'mul ft9.x, ft9.x, fc9.z' /* ft9.x = '0.1821 * absYandR * absYandR' */,
+							'sub ft9.x, ft9.x, fc9.w' /* ft9.x = '(0.1821 * absYandR * absYandR - 0.9675)' */,
+							'mul ft9.x, ft9.x, ft8.z' /* ft9.x = '(0.1821 * absYandR * absYandR - 0.9675) * absYandR' */,
+							'add ft9.x, ft9.x, ft8.w' /* ft9.x = '(partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR' */,
+							'mul ft9.x, ft9.x, ft8.y' /* ft9.x = '((partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR) * sign' */,
+							/* compress -pi..pi to 0..1: (angle,pi)/(2*pi) */
+							'add ft9.x, ft9.x, fc8.z',
+							'div ft9.x, ft9.x, fc8.w',
+							
+							/*--------------------------------
+							Apply gaussian blur
+							--------------------------------*/
+							
+							// float blur = (1./resolution.x)  * smoothstep(0., 1., r);
+							// smoothstep = t * t * (3.0 - 2.0 * t), t = r
+							'mul ft11.x, fc0.z, ft20.x',
+							'sub ft11.x, fc10.x, ft11.x',
+							'mul ft11.x, ft11.x, ft20.x',
+							'mul ft11.x, ft11.x, ft20.x',
+							'mul ft11.x, ft11.x, fc2.z',
+							
+							// Clamp radius (is it really needed??)
+							//'sat ft11.x, ft20.x',
+							
+							// We`ll sum into ft12.x
+							// sum = 0
+							'mov ft12.x, fc0.w',
+							
+							// Sample multiple times for blur
+							// Must use ted instead of tex inside a branch of conditional, also mips must be enabled - wtf?				
+							// sum += sample(vec2(tc.x - 4.0*blur, tc.y), r) * 0.05;							
+							'mov ft13.x, ft9.x',
+							'mul ft13.y, ft11.x, fc12.w',
+							'sub ft13.x, ft13.x, ft13.y',
+							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc11.x',
+							'add ft12.x, ft12.x, ft13.x',
+							//sum += sample(vec2(tc.x - 3.0*blur, tc.y), r) * 0.09;
+							'mov ft13.x, ft9.x',
+							'mul ft13.y, ft11.x, fc12.z',
+							'sub ft13.x, ft13.x, ft13.y',
+							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc11.y',
+							'add ft12.x, ft12.x, ft13.x',
+							//sum += sample(vec2(tc.x - 2.0*blur, tc.y), r) * 0.12;
+							'mov ft13.x, ft9.x',
+							'mul ft13.y, ft11.x, fc12.y',
+							'sub ft13.x, ft13.x, ft13.y',
+							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc11.z',
+							'add ft12.x, ft12.x, ft13.x',
+							//sum += sample(vec2(tc.x - 1.0*blur, tc.y), r) * 0.15;
+							'mov ft13.x, ft9.x',
+							'mul ft13.y, ft11.x, fc12.x',
+							'sub ft13.x, ft13.x, ft13.y',
+							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc11.w',
+							'add ft12.x, ft12.x, ft13.x',
+							// sum += center * 0.16;
+							'ted ft14, ft9.xy, fs2 <2d, clamp, linear, mipnearest>',							
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc13.x',
+							'add ft12.x, ft12.x, ft13.x',
+							//sum += sample(vec2(tc.x + 1.0*blur, tc.y), r) * 0.15;
+							'mov ft13.x, ft9.x',
+							'mul ft13.y, ft11.x, fc12.x',
+							'add ft13.x, ft13.x, ft13.y',
+							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc11.w',
+							'add ft12.x, ft12.x, ft13.x',
+							//sum += sample(vec2(tc.x + 2.0*blur, tc.y), r) * 0.12;
+							'mov ft13.x, ft9.x',
+							'mul ft13.y, ft11.x, fc12.y',
+							'add ft13.x, ft13.x, ft13.y',
+							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc11.z',
+							'add ft12.x, ft12.x, ft13.x',
+							//sum += sample(vec2(tc.x + 3.0*blur, tc.y), r) * 0.09;
+							'mov ft13.x, ft9.x',
+							'mul ft13.y, ft11.x, fc12.z',
+							'add ft13.x, ft13.x, ft13.y',
+							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc11.y',
+							'add ft12.x, ft12.x, ft13.x',
+							//sum += sample(vec2(tc.x + 4.0*blur, tc.y), r) * 0.05;
+							'mov ft13.x, ft9.x',
+							'mul ft13.y, ft11.x, fc12.w',
+							'add ft13.x, ft13.x, ft13.y',
+							'ted ft14, ft13.xy, fs2 <2d, clamp, linear, mipnearest>',
+							'sge ft13.x, ft20.x, ft14.x',
+							'mul ft13.x, ft13.x, fc11.x',
+							'add ft12.x, ft12.x, ft13.x',
+						
+							// Final coef
+							'sub ft12.x, fc0.y, ft12.x',
+	
+							/*--------------------------------
+							Result
+							--------------------------------*/
+							
+							// Draw shadow everywhere except above occluders
+							'ife ft10.x, fc0.y',
+								'mul ft6, ft6, ft12.x',
+							'eif',
+						'eif',						
+						
 						'mov oc, ft6'
 					]
 				);
 			
 			var vertexProgramAssembler:AGALMiniAssembler = new AGALMiniAssembler();
-			vertexProgramAssembler.assemble(Context3DProgramType.VERTEX, vertexProgramCode);
+			vertexProgramAssembler.assemble(Context3DProgramType.VERTEX, vertexProgramCode, 2);
 			
 			var fragmentProgramAssembler:AGALMiniAssembler = new AGALMiniAssembler();
-			fragmentProgramAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgramCode);
+			fragmentProgramAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgramCode, 2);
 			
-			target.registerProgram(PROGRAM_NAME, vertexProgramAssembler.agalcode,
-				fragmentProgramAssembler.agalcode);
+			target.registerProgram(POINT_LIGHT_PROGRAM, vertexProgramAssembler.agalcode, fragmentProgramAssembler.agalcode);
+			
+			// Register shadowmap program
+			
+			vertexProgramCode = 
+				Utils.joinProgramArray(
+					[						
+						// Pass along unpacked screen cords
+						'mov v0, va0',						
+						'mov op, va0'
+					]
+				);
+			
+			// Constants:
+			// fc0 - [uStart, vStart, uWidth, vHeight]
+			// fc1 - [PI, 1.5PI, 0, threshold]
+			// fc2 - constants [0.5, 1, 2, 0]
+			// fc3 - [boundsHeightPx, vCurrentBlockOffset, lightRadius, halfFragment]
+			
+			fragmentProgramCode =
+				Utils.joinProgramArray(
+					[					
+						// Calculate theta (θ)
+						// float theta = PI * 1.5 + u * PI; (u here is unpacked one, directly from varying)
+						'mul ft0.x, v0.x, fc1.x',
+						'add ft0.x, ft0.x, fc1.y',
+						
+						// Set initial r value to current block offset
+						'mov ft6.x, fc3.y',
+						
+						// Set initial distance to 1
+						'mov ft4.x, fc2.y',
+						
+						/*------------------------
+						LOOP GOES HERE
+						------------------------*/
+						'<loop>',
+
+						'mov od.x, ft4.x',
+						'mov oc, ft4.xxxx'
+					]
+				);
+			
+			// Calculate the number of pixels we can process using single draw call
+			
+			PIXELS_PER_DRAW_CALL = Math.floor((OPCODE_LIMIT - 6) / 15);
+			
+			var i:int = PIXELS_PER_DRAW_CALL;
+			var loopCode:String = '';
+			
+			while(i--)
+			{
+				// This renders single shadowmap pixel.
+				// Things are a bit complicated as only square portion of the occluder map should be rendered.			
+				// AGAL does not support loops as of yet, so we just have to repeat needed block
+				// as many times, as it is possible while keeping opcode count below the limit.
+				// PIXELS_PER_DRAW_CALL indicates how many pixels we can process in a single draw call :~
+				
+				// Constants:
+				// fc0 - [uStart, vStart, uWidth, vHeight]
+				// fc1 - [PI, 1.5PI, 0, threshold]
+				// fc2 - constants [0.5, 1, 2, 0]
+				// fc3 - [boundsHeightPx, vCurrentBlockOffset, lightRadius, 0]
+				
+				// Temps:
+				// ft0 - [theta, r, u, -r]
+				// ft6.x - currY
+				
+				loopCode +=
+					Utils.joinProgramArray(
+						[		
+							// currU = currY / bounds.height
+							'div ft0.y, ft6.x, fc3.z',
+							
+							// Calculate occluder map sample coord
+							// vec2 coord = vec2(-r * sin(theta), -r * cos(theta))/2.0 + 0.5;
+							'neg ft0.w, ft0.y',
+							'sin ft1.x, ft0.x',
+							'cos ft1.y, ft0.x',
+							'mul ft2.xyxy, ft0.wwww, ft1.xyxy',
+							'mul ft2.xyxy, ft2.xyxy, fc2.x',
+							'add ft2.xy, ft2.xy, fc2.x',
+							
+							// Generated coords are in range [0, 1] so we should multiply those by
+							// whole shadowmap area part width and height and add offsets
+							'mul ft2.xyxy, ft2.xyxy, fc0.zwzw',
+							'add ft2.xy, ft2.xy, fc0.xy',
+							// Subtract half fragment - not sure why
+							'sub ft2.xy, ft2.xy, fc3.ww',
+							'tex ft3, ft2.xy, fs0 <2d, clamp, linear, mipnone>',
+							
+							// Check if the ray hit an occluder	(meaning current occluder map value = 0)
+							// Set distance of this pixel to current distance if it lower than current one
+							'ife ft3.x, fc2.w',
+								'min ft4.x, ft4.x, ft0.y',
+								// break/return here would speed things a lot
+							'eif',
+							
+							// Increment r
+							'add ft6.x, ft6.x, fc2.y'
+						]
+					);
+			}
+			
+			// Insert loop
+			
+			fragmentProgramCode = fragmentProgramCode.replace('<loop>', loopCode);
+			
+			vertexProgramAssembler = new AGALMiniAssembler();
+			vertexProgramAssembler.assemble(Context3DProgramType.VERTEX, vertexProgramCode, 2);
+			
+			fragmentProgramAssembler = new AGALMiniAssembler();
+			fragmentProgramAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgramCode, 2);
+			
+			target.registerProgram(SHADOWMAP_PROGRAM, vertexProgramAssembler.agalcode, fragmentProgramAssembler.agalcode);
 		}
 		
 		private function calculateRealRadius(radius:Number):void
 		{			
-			realRadius = 2 * radius / Math.sqrt(3);
+			var edge:Number = (2 * radius) / (1 + Math.sqrt(2));
+			excircleRadius = edge / 2 * (Math.sqrt( 4 + 2 * Math.sqrt(2) ));
 		}
 		
 		private function setupVertices():void
 		{
 			var i:int;
 			
-			// Create vertices			
+			// Create vertices		
 			vertexData = new VertexData(mNumEdges+1);
 			
 			for(i = 0; i < mNumEdges; ++i)
 			{
-				var edge:Point = Point.polar(realRadius, i * 2 * Math.PI / mNumEdges);
-				vertexData.setPosition(i, edge.x, edge.y);
+				var edge:Point = Point.polar(excircleRadius, (i * 2 * Math.PI) / mNumEdges + 22.5 * Math.PI / 180);
+				vertexData.setPosition(i, edge.x, edge.y);				
+				var uvCoords:Point = Point.polar(1.0, i * 2 * Math.PI / mNumEdges + 22.5 * Math.PI / 180);				
+				uvCoords.y *= -1;
+				vertexData.setTexCoords(i, uvCoords.x, uvCoords.y);
 			}
 			
 			// Center vertex
@@ -327,7 +712,7 @@ package starling.extensions.defferedShading.lights
 			for(i = 0; i < mNumEdges; ++i)
 			{
 				indexData.push(mNumEdges, i, (i + 1) % mNumEdges);
-			}			
+			}		
 		}
 		
 		private function createBuffers():void
@@ -337,7 +722,7 @@ package starling.extensions.defferedShading.lights
 			
 			if (vertexBuffer) vertexBuffer.dispose();
 			if (indexBuffer)  indexBuffer.dispose();
-	 		
+			
 			vertexBuffer = context.createVertexBuffer(vertexData.numVertices, VertexData.ELEMENTS_PER_VERTEX);
 			vertexBuffer.uploadFromVector(vertexData.rawData, 0, vertexData.numVertices);
 			
@@ -384,18 +769,17 @@ package starling.extensions.defferedShading.lights
 			registerPrograms();
 		}
 		
-		private var _castsShadows:Boolean = false;
-		
 		/**
 		 * This light will cast shadows if set to true.
 		 */
-		public function get castsShadows():Boolean
+		override public function get castsShadows():Boolean
 		{ 
-			return _castsShadows;
+			return super.castsShadows;
 		}
-		public function set castsShadows(value:Boolean):void
+		override public function set castsShadows(value:Boolean):void
 		{
-			_castsShadows = value;
-		}		
+			super.castsShadows = value;
+			lightProps2[0] = value ? 1.0 : 0.0;
+		}
 	}
 }

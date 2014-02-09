@@ -170,6 +170,7 @@ package starling.core
         private var mSupport:RenderSupport;
         private var mTouchProcessor:TouchProcessor;
         private var mAntiAliasing:int;
+		private var mEnableDepthAndStencil:Boolean;
         private var mSimulateMultitouch:Boolean;
         private var mEnableErrorChecking:Boolean;
         private var mLastFrameTimestamp:Number;
@@ -475,7 +476,7 @@ package starling.core
                     mStage3D.y = mClippedViewPort.y;
                     
                     configureBackBuffer(mClippedViewPort.width, mClippedViewPort.height,
-                        mAntiAliasing, false, mSupportHighResolutions);
+                        mAntiAliasing, mEnableDepthAndStencil, mSupportHighResolutions);
                     
                     if (mSupportHighResolutions && "contentsScaleFactor" in mNativeStage)
                         mNativeStageContentScaleFactor = mNativeStage["contentsScaleFactor"];
@@ -819,6 +820,16 @@ package starling.core
                 if (mContextValid) updateViewPort(true);
             }
         }
+		
+		public function get enableDepthAndStencil():Boolean
+		{ 
+			return mEnableDepthAndStencil;
+		}
+		public function set enableDepthAndStencil(value:Boolean):void
+		{
+			mEnableDepthAndStencil = value;
+			updateViewPort(true);
+		}		
         
         /** The viewport into which Starling contents will be rendered. */
         public function get viewPort():Rectangle { return mViewPort; }

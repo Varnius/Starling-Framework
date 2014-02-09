@@ -218,13 +218,13 @@ package starling.display
             if (mSyncRequired) syncBuffers();
             
 			var currPass:String = Starling.current.renderSupport.renderPass;
-			var deferredPass:Boolean = currPass == RenderPass.DEFERRED_MRT;
+			var MRTPass:Boolean = currPass == RenderPass.MRT;
             var pma:Boolean = mVertexData.premultipliedAlpha;
             var context:Context3D = Starling.context;
             var tinted:Boolean = mTinted || (parentAlpha != 1.0);
             var programName:String = mTexture ? 
                 getImageProgramName(tinted, mTexture.mipMapping, mTexture.repeat, mTexture.format, mSmoothing, currPass) : 
-                (deferredPass ? QUAD_PROGRAM_NAME_DEFERRED : QUAD_PROGRAM_NAME);
+                (MRTPass ? QUAD_PROGRAM_NAME_DEFERRED : QUAD_PROGRAM_NAME);
             
             sRenderAlpha[0] = sRenderAlpha[1] = sRenderAlpha[2] = pma ? parentAlpha : 1.0;
             sRenderAlpha[3] = parentAlpha;
@@ -244,12 +244,6 @@ package starling.display
             if (mTexture == null || tinted)
                 context.setVertexBufferAt(1, mVertexBuffer, VertexData.COLOR_OFFSET, 
                                           Context3DVertexBufferFormat.FLOAT_4);
-            
-			if(deferredPass)
-			{
-				// Yeah, now alpha support is gone
-				//context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ZERO);
-			}
 			
 			// Image
 			
@@ -261,7 +255,7 @@ package starling.display
 				
 				// Set textures for deferred pass	
 				
-				if (deferredPass)
+				if (MRTPass)
 				{			
 					var normalMapPresent:Boolean = mTexture.materialProperties.normalMap;
 					var depthMapPresent:Boolean = mTexture.materialProperties.depthMap;
@@ -285,12 +279,12 @@ package starling.display
 			
 			else
 			{
-				if (deferredPass)
+				if (MRTPass)
 				{			
 					// Set default normal color for quads				
 					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, deferredQuadNormal, 1);					
 					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, deferredQuadSpecularParams, 1);
-				}				
+				}				 
 			}
             
             context.drawTriangles(mIndexBuffer, 0, mNumQuads * 2);
@@ -300,7 +294,7 @@ package starling.display
                 context.setTextureAt(0, null);
                 context.setVertexBufferAt(2, null);
 				
-				if (deferredPass)
+				if (MRTPass)
 				{
 					// Unset textures		
 					context.setTextureAt(1, null);
@@ -726,15 +720,19 @@ package starling.display
             // vc0 -> alpha
             // vc1 -> mvpMatrix
             // fs0 -> texture
-            
+			
             // Quad:
             
             vertexProgram =
-                "m44 op, va0, vc1 \n" + // 4x4 matrix transform to output clipspace
-                "mul v0, va1, vc0 \n";  // multiply alpha (vc0) with color (va1)
+				Utils.joinProgramArray(
+					[
+						"m44 op, va0, vc1", // 4x4 matrix transform to output clipspace
+						"mul v0, va1, vc0"  // multiply alpha (vc0) with color (va1)
+					]
+				);               
             
             fragmentProgram =
-                "mov oc, v0       \n";  // output color
+                "mov oc, v0";  // output color
             
             target.registerProgram(QUAD_PROGRAM_NAME,
                 assembler.assemble(Context3DProgramType.VERTEX, vertexProgram, Starling.current.agalVersion),
@@ -743,8 +741,12 @@ package starling.display
 			// Quad deferred:
 			
 			vertexProgram =
-				"m44 op, va0, vc1 \n" + // 4x4 matrix transform to output clipspace
-				"mul v0, va1, vc0 \n";  // multiply alpha (vc0) with color (va1)
+				Utils.joinProgramArray(
+					[
+						"m44 op, va0, vc1", // 4x4 matrix transform to output clipspace
+						"mul v0, va1, vc0"  // multiply alpha (vc0) with color (va1)
+					]
+				);			
 			
 			// fc5, deferred quad normal [0.5, 0.5, 1.0, 0]
 			// fc6, deferred quad specular/depth params [specPower, specIntensity, defaultDepth, 0.0]
@@ -784,7 +786,7 @@ package starling.display
 			
 			var passTypes:Array = [
 				RenderPass.NORMAL, 
-				RenderPass.DEFERRED_MRT
+				RenderPass.MRT
 			];
 			
 			vertexProgram = Utils.joinProgramArray(
@@ -896,7 +898,7 @@ package starling.display
 									
 									finalFragmentProgram = finalFragmentProgram.replace(
 										'<deferred_part>',
-										passType == RenderPass.NORMAL ? '' : deferredFragmentProgramPart
+										passType != RenderPass.MRT ? '' : deferredFragmentProgramPart
 									);
 									
 									target.registerProgram(
@@ -932,7 +934,7 @@ package starling.display
             else if (format == "compressedAlpha")
                 bitField |= 1 << 6;
             
-			if (pass == RenderPass.NORMAL)
+			if (pass != RenderPass.MRT)
 				bitField |= 1 << 7;
 			
             var name:String = sProgramNameCache[bitField];

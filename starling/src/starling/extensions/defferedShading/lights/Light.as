@@ -1,7 +1,14 @@
 package starling.extensions.defferedShading.lights
 {
+	import com.adobe.utils.AGALMiniAssembler;
+	
+	import flash.display3D.IndexBuffer3D;
+	import flash.display3D.VertexBuffer3D;
+	
+	import starling.core.RenderSupport;
 	import starling.display.DisplayObject;
 	import starling.extensions.defferedShading.renderer_internal;
+	import starling.textures.Texture;
 	
 	use namespace renderer_internal;
 	
@@ -17,9 +24,23 @@ package starling.extensions.defferedShading.lights
 			this.strength = strength;
 		}
 		
+		public function renderShadowMap(
+			support:RenderSupport,
+			occluders:Texture,
+			vertexBuffer:VertexBuffer3D,
+			indexBuffer:IndexBuffer3D,
+			shadowMap:Texture,
+			shadowMapIndex:int
+		):void
+		{
+			throw new Error('This method should be overriden in a subclass.');
+		}
+		
 		/*-----------------------------
 		Properties
 		-----------------------------*/
+		
+		protected var assembler:AGALMiniAssembler = new AGALMiniAssembler();
 		
 		protected var _color:uint;
 		renderer_internal var _colorR:Number;
@@ -48,5 +69,19 @@ package starling.extensions.defferedShading.lights
 		{
 			_strength = value;
 		}
+		
+		protected var _castsShadows:Boolean = false;
+		
+		/**
+		 * This light will cast shadows if set to true.
+		 */
+		public function get castsShadows():Boolean
+		{ 
+			return _castsShadows;
+		}
+		public function set castsShadows(value:Boolean):void
+		{
+			_castsShadows = value;
+		}		
 	}
 }
