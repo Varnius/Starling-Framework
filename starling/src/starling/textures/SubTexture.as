@@ -98,8 +98,8 @@ package starling.textures
                 if (count != 4)
                     throw new ArgumentError("Textures with a frame can only be used on quads");
                 
-                var deltaRight:Number  = mFrame.width  + mFrame.x - width;
-                var deltaBottom:Number = mFrame.height + mFrame.y - height;
+                var deltaRight:Number  = mFrame.width  + mFrame.x - mWidth;
+                var deltaBottom:Number = mFrame.height + mFrame.y - mHeight;
                 
                 vertexData.translateVertex(vertexID,     -mFrame.x, -mFrame.y);
                 vertexData.translateVertex(vertexID + 1, -deltaRight, -mFrame.y);
@@ -162,6 +162,12 @@ package starling.textures
             return clipping;
         }
         
+        /** The matrix that is used to transform the texture coordinates into the coordinate
+         *  space of the parent texture (used internally by the "adjust..."-methods).
+         *
+         *  @returns CAUTION: not a copy, but the actual object! Do not modify! */
+        public function get transformationMatrix():Matrix { return mTransformationMatrix; }
+        
         /** @inheritDoc */
         public override function get base():TextureBase { return mParent.base; }
         
@@ -191,6 +197,9 @@ package starling.textures
         
         /** @inheritDoc */
         public override function get scale():Number { return mParent.scale; }
+        
+        /** @inheritDoc */
+        public override function get repeat():Boolean { return mParent.repeat; }
         
         /** @inheritDoc */
         public override function get frame():Rectangle
