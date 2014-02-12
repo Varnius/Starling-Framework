@@ -10,13 +10,12 @@
 
 package starling.display
 {
-    import com.adobe.utils.AGALMiniAssembler;
-    
     import flash.display3D.Context3D;
     import flash.display3D.Context3DProgramType;
     import flash.display3D.Context3DTextureFormat;
     import flash.display3D.Context3DVertexBufferFormat;
     import flash.display3D.IndexBuffer3D;
+    import flash.display3D.Program3D;
     import flash.display3D.VertexBuffer3D;
     import flash.geom.Matrix;
     import flash.geom.Matrix3D;
@@ -70,7 +69,7 @@ package starling.display
     public class QuadBatch extends DisplayObject
     {
         /** The maximum number of quads that can be displayed by one QuadBatch. */
-        public static const MAX_NUM_QUADS:int = 8192;
+		public static const MAX_NUM_QUADS:int = 16383;
         
         private static const QUAD_PROGRAM_NAME:String = "QB_q";
 		private static const QUAD_PROGRAM_NAME_DEFERRED:String = "QB_q_def";
@@ -125,21 +124,18 @@ package starling.display
         public override function dispose():void
         {
             Starling.current.stage3D.removeEventListener(Event.CONTEXT3D_CREATE, onContextCreated);
-            
+			destroyBuffers();
+			
             mVertexData.numVertices = 0;
             mIndexData.length = 0;
             mNumQuads = 0;
-            
-            if (mVertexBuffer) { mVertexBuffer.dispose(); mVertexBuffer = null; }
-            if (mIndexBuffer)  { mIndexBuffer.dispose();  mIndexBuffer = null; }
-            
+
             super.dispose();
         }
         
         private function onContextCreated(event:Object):void
         {
             createBuffers();
-            registerPrograms();
         }
         
         /** Call this method after manually changing the contents of 'mVertexData'. */
@@ -172,12 +168,12 @@ package starling.display
         
         private function createBuffers():void
         {
+			destroyBuffers();
+			
             var numVertices:int = mVertexData.numVertices;
             var numIndices:int = mIndexData.length;
             var context:Context3D = Starling.context;
 
-            if (mVertexBuffer)    mVertexBuffer.dispose();
-            if (mIndexBuffer)     mIndexBuffer.dispose();
             if (numVertices == 0) return;
             if (context == null)  throw new MissingContextError();
             
@@ -189,6 +185,21 @@ package starling.display
             
             mSyncRequired = false;
         }
+		
+		private function destroyBuffers():void
+		{
+			if (mVertexBuffer)
+			{
+				mVertexBuffer.dispose();
+				mVertexBuffer = null;
+			}
+			
+			if (mIndexBuffer)
+			{
+				mIndexBuffer.dispose();
+				mIndexBuffer = null;
+			}
+		}
         
         /** Uploads the raw data of all batched quads to the vertex buffer; furthermore,
          *  registers the required programs if they haven't been registered yet. */
@@ -196,7 +207,6 @@ package starling.display
         {
             if (mVertexBuffer == null)
             {
-                registerPrograms();
                 createBuffers();
             }
             else
@@ -222,9 +232,9 @@ package starling.display
             var pma:Boolean = mVertexData.premultipliedAlpha;
             var context:Context3D = Starling.context;
             var tinted:Boolean = mTinted || (parentAlpha != 1.0);
-            var programName:String = mTexture ? 
+            /*var programName:String = mTexture ? 
                 getImageProgramName(tinted, mTexture.mipMapping, mTexture.repeat, mTexture.format, mSmoothing, currPass) : 
-                (MRTPass ? QUAD_PROGRAM_NAME_DEFERRED : QUAD_PROGRAM_NAME);
+                (MRTPass ? QUAD_PROGRAM_NAME_DEFERRED : QUAD_PROGRAM_NAME);*/
             
             sRenderAlpha[0] = sRenderAlpha[1] = sRenderAlpha[2] = pma ? parentAlpha : 1.0;
             sRenderAlpha[3] = parentAlpha;
@@ -232,7 +242,7 @@ package starling.display
             MatrixUtil.convertTo3D(mvpMatrix, sRenderMatrix);
             RenderSupport.setBlendFactors(pma, blendMode ? blendMode : this.blendMode);
             
-            context.setProgram(Starling.current.getProgram(programName));
+            context.setProgram(getProgram(tinted, currPass));
             context.setProgramConstantsFromVector(Context3DProgramType.VERTEX, 0, sRenderAlpha, 1);
             context.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 1, sRenderMatrix, true);
 			
@@ -696,223 +706,180 @@ package starling.display
                 mIndexData[int(i*6+4)] = i*4 + 3;
                 mIndexData[int(i*6+5)] = i*4 + 2;
             }
-            
-            createBuffers();
-            registerPrograms();
+			
+			destroyBuffers();
+			mSyncRequired = true;
         }
-        
-        // program management
-        
-        private static function registerPrograms():void
-        {
-            var target:Starling = Starling.current;
-            if (target.hasProgram(QUAD_PROGRAM_NAME)) return; // already registered
-            
-            var assembler:AGALMiniAssembler = new AGALMiniAssembler();
-            var vertexProgram:String;
-            var fragmentProgram:String;
-            
-            // this is the input data we'll pass to the shaders:
-            // 
-            // va0 -> position
-            // va1 -> color
-            // va2 -> texCoords
-            // vc0 -> alpha
-            // vc1 -> mvpMatrix
-            // fs0 -> texture
+		
+		private function getProgram(tinted:Boolean, pass:String):Program3D
+		{
+			var target:Starling = Starling.current;
+			var programName:String = pass == RenderPass.MRT ? QUAD_PROGRAM_NAME : QUAD_PROGRAM_NAME_DEFERRED;
 			
-            // Quad:
-            
-            vertexProgram =
-				Utils.joinProgramArray(
-					[
-						"m44 op, va0, vc1", // 4x4 matrix transform to output clipspace
-						"mul v0, va1, vc0"  // multiply alpha (vc0) with color (va1)
-					]
-				);               
-            
-            fragmentProgram =
-                "mov oc, v0";  // output color
-            
-            target.registerProgram(QUAD_PROGRAM_NAME,
-                assembler.assemble(Context3DProgramType.VERTEX, vertexProgram, Starling.current.agalVersion),
-                assembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgram, Starling.current.agalVersion));
-            
-			// Quad deferred:
+			if (mTexture)
+				programName = getImageProgramName(tinted, mTexture.mipMapping, mTexture.repeat, mTexture.format, mSmoothing, pass);
 			
-			vertexProgram =
-				Utils.joinProgramArray(
-					[
-						"m44 op, va0, vc1", // 4x4 matrix transform to output clipspace
-						"mul v0, va1, vc0"  // multiply alpha (vc0) with color (va1)
-					]
-				);			
+			var program:Program3D = target.getProgram(programName);
 			
-			// fc5, deferred quad normal [0.5, 0.5, 1.0, 0]
-			// fc6, deferred quad specular/depth params [specPower, specIntensity, defaultDepth, 0.0]
-			
-			fragmentProgram = Utils.joinProgramArray(
-				[
-					// Diffuse render target
-					'mov oc, v0',
+			if (!program)
+			{
+				// this is the input data we'll pass to the shaders:
+				// 
+				// va0 -> position
+				// va1 -> color
+				// va2 -> texCoords
+				// vc0 -> alpha
+				// vc1 -> mvpMatrix
+				// fs0 -> texture
+				
+				var vertexProgram:String;
+				var fragmentProgram:String;
+				
+				if (!mTexture) // Quad-Shaders
+				{
+					if (pass == RenderPass.MRT)
+					{						
+						vertexProgram =
+							Utils.joinProgramArray(
+								[
+									"m44 op, va0, vc1", // 4x4 matrix transform to output clipspace
+									"mul v0, va1, vc0"  // multiply alpha (vc0) with color (va1)
+								]
+							);			
+						
+						// fc5, deferred quad normal [0.5, 0.5, 1.0, 0]
+						// fc6, deferred quad specular/depth params [specPower, specIntensity, defaultDepth, 0.0]
+						
+						fragmentProgram = Utils.joinProgramArray(
+							[
+								// Diffuse render target
+								'mov oc, v0',
+								
+								// Normal render target
+								'mov oc1, fc5',
+								
+								// Depth render target
+								// Write specular params to depth yz				
+								'mov oc2.xyzw, fc6.zxyz'
+							]
+						);
+					}
+					else
+					{
+						vertexProgram =
+							Utils.joinProgramArray(
+								[
+									"m44 op, va0, vc1", // 4x4 matrix transform to output clipspace
+									"mul v0, va1, vc0"  // multiply alpha (vc0) with color (va1)
+								]
+							);               
+						
+						fragmentProgram =
+							"mov oc, v0";  // output color
+					}					
+				}
+				else // Image-Shaders
+				{
+					vertexProgram = Utils.joinProgramArray(
+						[
+							// 4x4 matrix transform to output clipspace
+							'm44 op, va0, vc1',
+							
+							// Tint logic goes here
+							'<tint_part>',
+							
+							// Pass texture coordinates to fragment program
+							'mov v1, va2'
+						]
+					);
 					
-					// Normal render target
-					'mov oc1, fc5',
+					fragmentProgram = Utils.joinProgramArray(
+						[
+							// Sample diffuse
+							'tex ft1, v1, fs0 <sampler_flags>',
+							
+							// Tint logic goes here
+							'<tint_part>',
+							
+							// Deferred pass logic goes here
+							'<deferred_part>',
+							
+							// Output color
+							'mov oc, ft1'
+						]
+					);
 					
-					// Depth render target
-					// Write specular params to depth yz				
-					'mov oc2.xyzw, fc6.zxyz'
-				]
-			);
-			
-			target.registerProgram(QUAD_PROGRAM_NAME_DEFERRED,
-				assembler.assemble(Context3DProgramType.VERTEX, vertexProgram, Starling.current.agalVersion),
-				assembler.assemble(Context3DProgramType.FRAGMENT, fragmentProgram, Starling.current.agalVersion));
-			
-            // Image:
-            // Each combination of tinted/repeat/mipmap/smoothing has its own fragment shader.
-
-			var smoothingTypes:Array = [
-				TextureSmoothing.NONE,
-				TextureSmoothing.BILINEAR,
-				TextureSmoothing.TRILINEAR
-			];
-			
-			var formats:Array = [
-				Context3DTextureFormat.BGRA,
-				Context3DTextureFormat.COMPRESSED,
-				"compressedAlpha" // use explicit string for compatibility
-			];
-			
-			var passTypes:Array = [
-				RenderPass.NORMAL, 
-				RenderPass.MRT
-			];
-			
-			vertexProgram = Utils.joinProgramArray(
-				[
-					// 4x4 matrix transform to output clipspace
-					'm44 op, va0, vc1',
+					// Tint
 					
-					// Tint logic goes here
-					'<tint_part>',
+					vertexProgram = vertexProgram.replace(
+						'<tint_part>',
+						tinted ? TINT_VERTEX_PROGRAM_PART : ''
+					);
 					
-					// Pass texture coordinates to fragment program
-					'mov v1, va2'
-				]
-			);
+					fragmentProgram = fragmentProgram.replace(
+						'<tint_part>',
+						tinted ? TINT_FRAGMENT_PROGRAM_PART : ''
+					);
+					
+					// Deferred shading
+					
+					fragmentProgram = fragmentProgram.replace(
+						'<sampler_flags>', 
+						RenderSupport.getTextureLookupFlags(mTexture.format, mTexture.mipMapping, mTexture.repeat, smoothing)
+					);								
+					
+					fragmentProgram = fragmentProgram.replace(
+						'<deferred_part>',
+						pass != RenderPass.MRT ? '' : DEFERRED_FRAGMENT_PROGRAM_PART
+					);
+				}
+				
+				program = target.registerProgramFromSource(programName, vertexProgram, fragmentProgram, pass == RenderPass.MRT ? 2 : 1);
+			}
 			
-			fragmentProgram = Utils.joinProgramArray(
-				[
-					// Sample diffuse
-					'tex ft1, v1, fs0 <sampler_flags>',
-					
-					// Tint logic goes here
-					'<tint_part>',
-					
-					// Deferred pass logic goes here
-					'<deferred_part>',
-					
-					// Output color
-					'mov oc, ft1'
-				]
-			);
-			
-			// Tint program parts
-			
-			var tintVertexProgramPart:String = Utils.joinProgramArray(
-				[
-					// Multiply alpha (vc0) with color (va1)
-					'mul v0, va1, vc0'
-				]
-			);
-			
-			var tintFragmentProgramPart:String = Utils.joinProgramArray(
-				[
-					// Multiply color with texel color
-					'mul ft1, ft1, v0'
-				]
-			);
-			
-			// Deferred program parts
-			
-			var deferredFragmentProgramPart:String = Utils.joinProgramArray(
-				[
-					// Sample normal					
-					'tex ft4, v1, fs1 <sampler_flags>',
-					
-					// Sample depth					
-					'tex ft3, v1, fs2 <sampler_flags>',
-					
-					// Set depth yz to specular power/intensity					
-					'mov ft3.y, fc5.x',
-					'mov ft3.z, fc5.y',
-					
-					// Mask normal/depth maps by diffuse map alpha
-					// This is useful when user just passes rectangular single-color
-					// normal map and wants to use it for the area covered by diffuse color
-					'mul ft4, ft4, ft1.w',
-					'mov oc1, ft4',
-					'mul ft3, ft3, ft1.w',				
-					
-					'mov oc2, ft3'
-				]
-			);
-			
-            for each (var tinted:Boolean in [true, false])
-            {                
-                for each (var repeat:Boolean in [true, false])
-                {
-                    for each (var mipmap:Boolean in [true, false])
-                    {
-                        for each (var smoothing:String in smoothingTypes)
-                        {
-                            for each (var format:String in formats)
-                            {
-								for each (var passType:String in passTypes)
-								{
-									var samplerFlags:String = RenderSupport.getTextureLookupFlags(
-										format, mipmap, repeat, smoothing);
-									
-									var finalVertexProgram:String = vertexProgram;
-									var finalFragmentProgram:String = fragmentProgram;									
-									
-									// Tint
-									
-									finalVertexProgram = finalVertexProgram.replace(
-										'<tint_part>',
-										tinted ? tintVertexProgramPart : ''
-									);
-									
-									finalFragmentProgram = finalFragmentProgram.replace(
-										'<tint_part>',
-										tinted ? tintFragmentProgramPart : ''
-									);
-									
-									// Deferred shading
-									
-									finalFragmentProgram = finalFragmentProgram.replace(
-										'<sampler_flags>', 
-										samplerFlags
-									);								
-									
-									finalFragmentProgram = finalFragmentProgram.replace(
-										'<deferred_part>',
-										passType != RenderPass.MRT ? '' : deferredFragmentProgramPart
-									);
-									
-									target.registerProgram(
-										getImageProgramName(tinted, mipmap, repeat, format, smoothing, passType),
-										assembler.assemble(Context3DProgramType.VERTEX, finalVertexProgram, Starling.current.agalVersion),
-										assembler.assemble(Context3DProgramType.FRAGMENT, finalFragmentProgram, Starling.current.agalVersion)
-									);
-								}                               
-                            }
-                        }
-                    }
-                }
-            }
-        }
+			return program;
+		}
+		
+		// Tint program parts
+		
+		private static var TINT_VERTEX_PROGRAM_PART:String = Utils.joinProgramArray(
+			[
+				// Multiply alpha (vc0) with color (va1)
+				'mul v0, va1, vc0'
+			]
+		);
+		
+		private static var TINT_FRAGMENT_PROGRAM_PART:String = Utils.joinProgramArray(
+			[
+				// Multiply color with texel color
+				'mul ft1, ft1, v0'
+			]
+		);
+		
+		// Deferred program parts
+		
+		private static var DEFERRED_FRAGMENT_PROGRAM_PART:String = Utils.joinProgramArray(
+			[
+				// Sample normal					
+				'tex ft4, v1, fs1 <sampler_flags>',
+				
+				// Sample depth					
+				'tex ft3, v1, fs2 <sampler_flags>',
+				
+				// Set depth yz to specular power/intensity					
+				'mov ft3.y, fc5.x',
+				'mov ft3.z, fc5.y',
+				
+				// Mask normal/depth maps by diffuse map alpha
+				// This is useful when user just passes rectangular single-color
+				// normal map and wants to use it for the area covered by diffuse color
+				'mul ft4, ft4, ft1.w',
+				'mov oc1, ft4',
+				'mul ft3, ft3, ft1.w',				
+				
+				'mov oc2, ft3'
+			]
+		);
         
         private static function getImageProgramName(tinted:Boolean, mipMap:Boolean=true, 
                                                     repeat:Boolean=false, format:String="bgra",

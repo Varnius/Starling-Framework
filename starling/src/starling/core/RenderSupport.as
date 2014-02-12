@@ -464,7 +464,7 @@ package starling.core
          *  pass a 'resultProgram', it will be uploaded to that program; otherwise, a new program
          *  will be created on the current Stage3D context. */ 
         public static function assembleAgal(vertexShader:String, fragmentShader:String,
-                                            resultProgram:Program3D=null):Program3D
+                                            resultProgram:Program3D=null, agalVersion:int=1):Program3D
         {
             if (resultProgram == null) 
             {
@@ -474,8 +474,8 @@ package starling.core
             }
             
             resultProgram.upload(
-                sAssembler.assemble(Context3DProgramType.VERTEX, vertexShader),
-                sAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentShader));
+                sAssembler.assemble(Context3DProgramType.VERTEX, vertexShader, agalVersion),
+                sAssembler.assemble(Context3DProgramType.FRAGMENT, fragmentShader, agalVersion));
             
             return resultProgram;
         }
