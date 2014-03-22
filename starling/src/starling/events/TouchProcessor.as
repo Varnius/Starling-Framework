@@ -412,7 +412,7 @@ package starling.events
                 if (enable)
                     nativeApp.addEventListener("deactivate", onInterruption, false, 0, true);
                 else
-                    nativeApp.removeEventListener("activate", onInterruption);
+                    nativeApp.removeEventListener("deactivate", onInterruption);
             }
             catch (e:Error) {} // we're not running in AIR
         }
@@ -437,6 +437,7 @@ package starling.events
 
             // purge touches
             mCurrentTouches.length = 0;
+            mQueue.length = 0;
         }
     }
 }
