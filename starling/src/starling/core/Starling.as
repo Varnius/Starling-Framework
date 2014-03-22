@@ -203,7 +203,6 @@ package starling.core
 		private var mStarted:Boolean;
 		private var mRendering:Boolean;
 		private var mContextValid:Boolean;
-		private var mEnableDepthAndStencil:Boolean;
 		
 		private var mViewPort:Rectangle;
 		private var mPreviousViewPort:Rectangle;
@@ -562,13 +561,13 @@ package starling.core
 					// set the backbuffer to a very small size first, to be on the safe side.
 					
 					if (mProfile == "baselineConstrained")
-						configureBackBuffer(32, 32, mAntiAliasing, mEnableDepthAndStencil);
+						configureBackBuffer(32, 32, mAntiAliasing, false);
 					
 					mStage3D.x = mClippedViewPort.x;
 					mStage3D.y = mClippedViewPort.y;
 					
 					configureBackBuffer(mClippedViewPort.width, mClippedViewPort.height,
-						mAntiAliasing, mEnableDepthAndStencil, mSupportHighResolutions);
+						mAntiAliasing, false, mSupportHighResolutions);
 					
 					if (mSupportHighResolutions && "contentsScaleFactor" in mNativeStage)
 						mNativeStageContentScaleFactor = mNativeStage["contentsScaleFactor"];
@@ -1074,16 +1073,6 @@ package starling.core
 				"'handleLostContext' must be set before Starling instance is created");
 			else
 				sHandleLostContext = value;
-		}
-		
-		public function get enableDepthAndStencil():Boolean
-		{ 
-			return mEnableDepthAndStencil;
-		}
-		public function set enableDepthAndStencil(value:Boolean):void
-		{
-			mEnableDepthAndStencil = value;
-			updateViewPort(true);
 		}
 		
 		private var mAgalVersion:int = 1;
