@@ -433,8 +433,8 @@ package starling.extensions.defferedShading.display
 			}
 			
 			context.setProgram(combinedResultProgram);			
-			context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ZERO); 
-			support.clear(0x000000, 1.0);
+			context.setBlendFactors(Context3DBlendFactor.SOURCE_ALPHA, Context3DBlendFactor.ONE_MINUS_SOURCE_ALPHA); 
+			//support.clear(0x0000FF, 0.0);
 			
 			context.drawTriangles(overlayIndexBuffer);
 			
@@ -491,7 +491,7 @@ package starling.extensions.defferedShading.display
 					'mul ft2.xyz, ft2.xyz, ft3.xxx',
 
 					// Set alpha as 1
-					'mov ft2.w, fc0.x',
+					'mov ft2.w, ft0.w',
 					'mov oc, ft2'
 				]
 			);
