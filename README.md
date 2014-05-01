@@ -15,3 +15,4 @@ TODOs:
 
 Example project can be found [here](https://github.com/Varnius/StarlingDynamicShadows2D)
 
+<img src="http://nekobit.puslapiai.lt/screens/mrt.png" alt="" />
