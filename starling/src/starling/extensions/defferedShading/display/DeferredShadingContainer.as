@@ -206,6 +206,11 @@ package starling.extensions.defferedShading.display
 				prepare();
 			}			
 			
+			if(!lights.length)
+			{
+				return;
+			}
+			
 			// Find visible lights and ambient light
 			
 			visibleLights.length = 0;

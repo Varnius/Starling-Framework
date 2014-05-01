@@ -259,7 +259,7 @@ package starling.core
 			for(var i:int = 0; i < le; i++)
 			{
 				// All render targets with colorOutputIndex > 0 must be reset to null before switching to backbuffer
-				// New render target could be a texture again ant not backbuffer, but we should still reset it
+				// New render target could be a texture again and not backbuffer, but we should still reset it
 				
 				if(i != 0 || targets[i] != null)
 				{
