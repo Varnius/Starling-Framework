@@ -6,7 +6,7 @@ This fork of Starling is modified to support multiple render targets and has a d
 Deferred renderer currently supports:
 
 * Deferred point lights.
-* Dynamic 2D shadows.
+* Dynamic pixel perfect 2D shadows.
 
 TODOs:
 
