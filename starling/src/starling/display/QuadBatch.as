@@ -266,15 +266,37 @@ package starling.display
 				// Set textures for deferred pass	
 				
 				if (MRTPass)
-				{			
-					var normalMapPresent:Boolean = mTexture.materialProperties.normalMap;
-					var depthMapPresent:Boolean = mTexture.materialProperties.depthMap;
+				{		
+					var specPower:Number;
+					var specIntensity:Number;					
+					var normalMapPresent:Boolean;
+					var depthMapPresent:Boolean;
+					var propsPresent:Boolean = mTexture.materialProperties;
+					
+					if(propsPresent)
+					{
+						normalMapPresent = mTexture.materialProperties.normalMap;
+						depthMapPresent = mTexture.materialProperties.depthMap;
+					}
+					else
+					{
+						normalMapPresent = false;
+						depthMapPresent = false;
+					}				
 					
 					// Set specular params constants, fc5
 					// Also, scale to fit into range of [0.0, 1.0] as all output is clipped when non-float RT is used
 					
-					specularParams[0] = mTexture.materialProperties.specularPower / MaterialProperties.SPECULAR_POWER_SCALE;						
-					specularParams[1] = mTexture.materialProperties.specularIntensity / MaterialProperties.SPECULAR_INTENSITY_SCALE;
+					if(propsPresent)
+					{
+						specularParams[0] = mTexture.materialProperties.specularPower / MaterialProperties.SPECULAR_POWER_SCALE;						
+						specularParams[1] = mTexture.materialProperties.specularIntensity / MaterialProperties.SPECULAR_INTENSITY_SCALE;
+					}
+					else
+					{
+						specularParams[0] = 0;						
+						specularParams[1] = 0; 
+					}
 					
 					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, specularParams, 1);
 					

@@ -70,6 +70,7 @@ package starling.extensions.defferedShading.display
 		private var tmpBounds:Rectangle = new Rectangle();
 		private var ambientConstants:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
 		private var visibleLights:Vector.<Light> = new Vector.<Light>
+		private var obs:Vector.<DisplayObject> = new Vector.<DisplayObject>();
 		
 		// Shadows
 		
@@ -201,6 +202,8 @@ package starling.extensions.defferedShading.display
 		
 		private function renderExtended(support:RenderSupport, parentAlpha:Number):void
 		{			
+			var obj:DisplayObject;
+			
 			if(!prepared)
 			{
 				prepare();
@@ -234,6 +237,7 @@ package starling.extensions.defferedShading.display
 				
 				l.getBounds(stage, tmpBounds);
 				
+				
 				if(stageBounds.containsRect(tmpBounds) || stageBounds.intersects(tmpBounds))
 				{
 					visibleLights.push(l);
@@ -264,6 +268,7 @@ package starling.extensions.defferedShading.display
 			/*----------------------------------
 			Shadows - occluder pass
 			----------------------------------*/
+			
 			// todo: maybe move this to mrt pass??? (as a single channel in depth target)
 			
 			support.renderPass = RenderPass.OCCLUDERS;
@@ -274,6 +279,8 @@ package starling.extensions.defferedShading.display
 			support.setRenderTargets(tmpRenderTargets);
 			support.clear(0xFFFFFF, 1.0);
 			
+			support.pushMatrix();
+			
 			for each(var o:DisplayObject in occluders)
 			{
 				o.getBounds(stage, tmpBounds);				
@@ -282,16 +289,25 @@ package starling.extensions.defferedShading.display
 				// Render only visible occluders
 				
 				if(isVisible)
-				{
-					support.pushMatrix();
-					
+				{					
+					support.loadIdentity();
 					obj = o;
+					
+					obs.length = 0;			
+					
+					// Collect all objects down to the stage, then sum up their transformations bottom up
 					
 					while(obj != stage)
 					{
-						support.prependMatrix(obj.transformationMatrix);
+						obs.push(obj);
 						obj = obj.parent;
-					}						
+					}		
+					
+					for(var j:int = obs.length - 1; j >= 0; j--)
+					{
+						obj = obs[j];
+						support.transformMatrix(obj);
+					}
 					
 					// Tint quads/images with black
 					// Custom display objects should check if support.renderPass == RenderPass.OCCLUDERS
@@ -304,21 +320,20 @@ package starling.extensions.defferedShading.display
 						q.color = Color.BLACK;
 					}
 					
-					o.render(support, parentAlpha);
-					support.popMatrix();
+					o.render(support, parentAlpha);					
 					
 					if(q)
 					{
 						q.color = Color.WHITE;
 					}
 				}
-			}			
+			}		
+			
+			support.popMatrix();
 			
 			/*----------------------------------
 			Shadows - shadowmap pass
 			----------------------------------*/
-			
-			var obj:DisplayObject;
 			
 			// Max shadow limit is height of shadowmap texture (currently 256)
 			
@@ -376,6 +391,8 @@ package starling.extensions.defferedShading.display
 				support.clear(0x000000, 0.0);
 				context.setBlendFactors(Context3DBlendFactor.ONE, Context3DBlendFactor.ONE);
 				
+				support.pushMatrix();
+				
 				for each(l in visibleLights)
 				{
 					pointLight = l as PointLight;
@@ -386,24 +403,36 @@ package starling.extensions.defferedShading.display
 						{
 							context.setTextureAt(2, pointLight.shadowMap.base);
 							context.setTextureAt(3, occludersRT.base);
-						}
-						
-						support.pushMatrix();
+						}						
+												
+						support.loadIdentity();
 						
 						obj = l;
+						obs.length = 0;
 						
 						while(obj != stage)
 						{
-							support.prependMatrix(obj.transformationMatrix);
+							obs.push(obj);
 							obj = obj.parent;
-						}						
+						}		
 						
+						var accumulatedScale:Number = 1.0;
+						
+						for(j = obs.length - 1; j >= 0; j--)
+						{
+							obj = obs[j];
+							support.transformMatrix(obj);
+							accumulatedScale *= obj.scaleX;
+						}			
+						
+						pointLight._accumulatedScale = accumulatedScale;
 						l.render(support, parentAlpha);
-						support.popMatrix();
 					}
 					
 					context.setTextureAt(3, null);
 				}
+				
+				support.popMatrix();
 				
 				// Don`t need to set it to null here
 				//context.setTextureAt(0, null);
@@ -439,7 +468,6 @@ package starling.extensions.defferedShading.display
 			
 			context.setProgram(combinedResultProgram);			
 			context.setBlendFactors(Context3DBlendFactor.SOURCE_ALPHA, Context3DBlendFactor.ONE_MINUS_SOURCE_ALPHA); 
-			//support.clear(0x0000FF, 0.0);
 			
 			context.drawTriangles(overlayIndexBuffer);
 			

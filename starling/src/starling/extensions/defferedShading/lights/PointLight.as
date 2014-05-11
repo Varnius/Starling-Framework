@@ -116,85 +116,96 @@ package starling.extensions.defferedShading.lights
 			return vertexData.getBounds(transformationMatrix, 0, -1, resultRect);
 		}
 		
+		// Account for rotation and scale of all parent objects (needed for correct shadow rendering)
+		
+		public var _accumulatedScale:Number = 1.0;
+		public var _accumulatedRotation:Number = 0.0;
+		
 		/**
 		 * Renders light to lightmap.
 		 */
-		public override function render(support:RenderSupport, alpha:Number):void
+		override public function render(support:RenderSupport, alpha:Number):void
 		{
-			if(support.renderPass == RenderPass.LIGHTS)
+			if(support.renderPass != RenderPass.LIGHTS)
 			{
-				// always call this method when you write custom rendering code!
-				// it causes all previously batched quads/images to render.
-				support.finishQuadBatch();
-				
-				// make this call to keep the statistics display in sync.
-				support.raiseDrawCount();
-				
-				sRenderAlpha[0] = sRenderAlpha[1] = sRenderAlpha[2] = 1.0;
-				sRenderAlpha[3] = alpha * this.alpha;
-				
-				var context:Context3D = Starling.context;
-				if (context == null) throw new MissingContextError();
-				
-				// Don`t apply regular blend mode
-				// support.applyBlendMode(false);
-				
-				// Set constants
-				
-				position.setTo(0, 0);
-				localToGlobal(position, position);
-				lightPosition[0] = position.x;
-				lightPosition[1] = position.y;
-				lightPosition[2] = stage.stageWidth;
-				lightPosition[3] = stage.stageHeight;
-				
-				lightProps[0] = _radius;
-				lightProps[1] = _strength;
-				lightProps[2] = 1 / _radius;
-				lightProps[3] = _radius * _radius;
-				
-				lightProps2[0] = _castsShadows ? 1.0 : 0.0;
-				
-				lightColor[0] = _colorR;
-				lightColor[1] = _colorG;
-				lightColor[2] = _colorB;
-				
-				attenuationConstants[0] = _attenuation;
-				attenuationConstants[1] = 1 / (attenuationConstants[0] + 1);
-				attenuationConstants[2] = 1 - attenuationConstants[1];
-				
-				specularParams[0] = MaterialProperties.SPECULAR_POWER_SCALE;
-				specularParams[1] = MaterialProperties.SPECULAR_INTENSITY_SCALE;
-				
-				// Activate program (shader) and set the required buffers / constants 
-				
-				context.setProgram(Starling.current.getProgram(_castsShadows ? POINT_LIGHT_PROGRAM_WITH_SHADOWS : POINT_LIGHT_PROGRAM));
-				context.setVertexBufferAt(0, vertexBuffer, VertexData.POSITION_OFFSET, Context3DVertexBufferFormat.FLOAT_2);
-				context.setVertexBufferAt(1, vertexBuffer, VertexData.TEXCOORD_OFFSET, Context3DVertexBufferFormat.FLOAT_2); 
-				context.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 0, support.mvpMatrix3D, true);   
-				context.setProgramConstantsFromVector(Context3DProgramType.VERTEX, 4, constants, 1);
-				
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, constants, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 1, lightPosition, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 2, lightProps, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 3, lightColor, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 4, halfVec, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, attenuationConstants, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, specularParams, 1);
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 7, lightProps2, 1);
-				
-				if(_castsShadows)
-				{
-					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 8, atan2Constants, 2);
-					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 10, constants2, 1);
-					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 11, blurConstants, 3);
-				}				
-				
-				context.drawTriangles(indexBuffer, 0, mNumEdges);
-				
-				context.setVertexBufferAt(0, null);
-				context.setVertexBufferAt(1, null);
-			}			
+				return;
+			}
+			
+			// always call this method when you write custom rendering code!
+			// it causes all previously batched quads/images to render.
+			support.finishQuadBatch();
+			
+			// make this call to keep the statistics display in sync.
+			support.raiseDrawCount();		
+			
+			sRenderAlpha[0] = sRenderAlpha[1] = sRenderAlpha[2] = 1.0;
+			sRenderAlpha[3] = alpha * this.alpha;
+			
+			var context:Context3D = Starling.context;
+			if (context == null) throw new MissingContextError();
+			
+			// Don`t apply regular blend mode
+			// support.applyBlendMode(false);
+			
+			// Set constants
+			
+			position.setTo(0, 0);
+			localToGlobal(position, position);
+			
+			lightPosition[0] = position.x;
+			lightPosition[1] = position.y;
+			lightPosition[2] = stage.stageWidth;
+			lightPosition[3] = stage.stageHeight;
+			
+			// todo: think of something prettier?
+			var bounds:Rectangle = getBounds(null, tmpBounds);			
+			var scaledRadius:Number = bounds.width / 2 * _accumulatedScale;
+			
+			lightProps[0] = scaledRadius;
+			lightProps[1] = _strength;
+			lightProps[2] = 1 / scaledRadius;
+			lightProps[3] = scaledRadius * scaledRadius;
+			
+			lightProps2[0] = _castsShadows ? 1.0 : 0.0;
+			
+			lightColor[0] = _colorR;
+			lightColor[1] = _colorG;
+			lightColor[2] = _colorB;
+			
+			attenuationConstants[0] = _attenuation;
+			attenuationConstants[1] = 1 / (attenuationConstants[0] + 1);
+			attenuationConstants[2] = 1 - attenuationConstants[1];
+			
+			specularParams[0] = MaterialProperties.SPECULAR_POWER_SCALE;
+			specularParams[1] = MaterialProperties.SPECULAR_INTENSITY_SCALE;
+			
+			// Activate program (shader) and set the required buffers / constants 
+			
+			context.setProgram(Starling.current.getProgram(_castsShadows ? POINT_LIGHT_PROGRAM_WITH_SHADOWS : POINT_LIGHT_PROGRAM));
+			context.setVertexBufferAt(0, vertexBuffer, VertexData.POSITION_OFFSET, Context3DVertexBufferFormat.FLOAT_2); 
+			context.setProgramConstantsFromMatrix(Context3DProgramType.VERTEX, 0, support.mvpMatrix3D, true);   
+			context.setProgramConstantsFromVector(Context3DProgramType.VERTEX, 4, constants, 1);
+			
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, constants, 1);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 1, lightPosition, 1);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 2, lightProps, 1);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 3, lightColor, 1);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 4, halfVec, 1);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, attenuationConstants, 1);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, specularParams, 1);
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 7, lightProps2, 1);			
+			
+			if(_castsShadows)
+			{
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 8, atan2Constants, 2);
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 10, constants2, 1);
+				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 11, blurConstants, 3);
+			}	
+			
+			context.drawTriangles(indexBuffer, 0, mNumEdges);
+			
+			context.setVertexBufferAt(0, null);
+			context.setVertexBufferAt(1, null);	
 		}
 		
 		/**
@@ -290,8 +301,7 @@ package starling.extensions.defferedShading.lights
 					[
 						'm44 vt0, va0, vc0',
 						'mov op, vt0',
-						'mov v0, vt0',						
-						'mov v1, va1'
+						'mov v0, vt0'
 					]
 				);		
 			
@@ -344,6 +354,7 @@ package starling.extensions.defferedShading.lights
 						// Calculate pixel position in eye space
 						
 						'mul ft3.xyxy, ft0.xyxy, fc1.zwzw',
+						'mov ft21.xy, ft3.xy', // save for shadow calculations
 						
 						// float3 lightDirection = lightPosition - pixelPosition;
 						'sub ft3.xy, fc1.xy, ft3.xy',
@@ -428,10 +439,12 @@ package starling.extensions.defferedShading.lights
 						// Sample occluders
 						'tex ft10, ft0.xy, fs3 <2d, clamp, linear, nomip>',
 						
-						// Do shadow coef calculations if castsShadows property is true
-						// Shadow coef is a value in interval [0, 1]  where 0 means that pixel is completely in shadow		
-						
-						'mov ft11, v1',
+						// Calculate pixel position in lights own coordinate system, where 
+						// light center is (0, 0) and Y axis increases downwards
+						'sub ft11.xy, ft21.xy, fc1.xy',
+						'div ft11.xy, ft11.xy, fc2.x',	
+						'neg ft11.y, ft11.y',
+						'mov ft11.zw, fc0.ww',
 						
 						/*--------------------------------
 						Calculate atan2
@@ -458,7 +471,7 @@ package starling.extensions.defferedShading.lights
 						'sub ft9.x, ft9.x, fc9.w' /* ft9.x = '(0.1821 * absYandR * absYandR - 0.9675)' */,
 						'mul ft9.x, ft9.x, ft8.z' /* ft9.x = '(0.1821 * absYandR * absYandR - 0.9675) * absYandR' */,
 						'add ft9.x, ft9.x, ft8.w' /* ft9.x = '(partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR' */,
-						'mul ft9.x, ft9.x, ft8.y' /* ft9.x = '((partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR) * sign' */,
+						'mul ft9.x, ft9.x, ft8.y' /* ft9.x = '((partSignX, 1.0) * 0.7853981634, (0.1821 * absYandR * absYandR - 0.9675) * absYandR) * sign' */,						
 						/* compress -pi..pi to 0..1: (angle,pi)/(2*pi) */
 						'add ft9.x, ft9.x, fc8.z',
 						'div ft9.x, ft9.x, fc8.w',
@@ -700,17 +713,14 @@ package starling.extensions.defferedShading.lights
 		private function setupVertices():void
 		{
 			var i:int;
-			
+		
 			// Create vertices		
 			vertexData = new VertexData(mNumEdges+1);
 			
 			for(i = 0; i < mNumEdges; ++i)
 			{
 				var edge:Point = Point.polar(excircleRadius, (i * 2 * Math.PI) / mNumEdges + 22.5 * Math.PI / 180);
-				vertexData.setPosition(i, edge.x, edge.y);				
-				var uvCoords:Point = Point.polar(1.0, i * 2 * Math.PI / mNumEdges + 22.5 * Math.PI / 180);				
-				uvCoords.y *= -1;
-				vertexData.setTexCoords(i, uvCoords.x, uvCoords.y);
+				vertexData.setPosition(i, edge.x, edge.y);
 			}
 			
 			// Center vertex
