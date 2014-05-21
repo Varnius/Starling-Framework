@@ -414,18 +414,14 @@ package starling.extensions.defferedShading.display
 						{
 							obs.push(obj);
 							obj = obj.parent;
-						}		
-						
-						var accumulatedScale:Number = 1.0;
+						}
 						
 						for(j = obs.length - 1; j >= 0; j--)
 						{
 							obj = obs[j];
 							support.transformMatrix(obj);
-							accumulatedScale *= obj.scaleX;
 						}			
 						
-						pointLight._accumulatedScale = accumulatedScale;
 						l.render(support, parentAlpha);
 					}
 					

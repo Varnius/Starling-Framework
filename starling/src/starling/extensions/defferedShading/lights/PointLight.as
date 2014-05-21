@@ -116,11 +116,6 @@ package starling.extensions.defferedShading.lights
 			return vertexData.getBounds(transformationMatrix, 0, -1, resultRect);
 		}
 		
-		// Account for rotation and scale of all parent objects (needed for correct shadow rendering)
-		
-		public var _accumulatedScale:Number = 1.0;
-		public var _accumulatedRotation:Number = 0.0;
-		
 		/**
 		 * Renders light to lightmap.
 		 */
@@ -159,7 +154,7 @@ package starling.extensions.defferedShading.lights
 			
 			// todo: think of something prettier?
 			var bounds:Rectangle = getBounds(null, tmpBounds);			
-			var scaledRadius:Number = bounds.width / 2 * _accumulatedScale;
+			var scaledRadius:Number = bounds.width / 2;
 			
 			lightProps[0] = scaledRadius;
 			lightProps[1] = _strength;

@@ -6,7 +6,6 @@ package starling.extensions.defferedShading.debug
 	import flash.display3D.Context3DProgramType;
 	import flash.display3D.Context3DVertexBufferFormat;
 	import flash.display3D.IndexBuffer3D;
-	import flash.display3D.Program3D;
 	import flash.display3D.VertexBuffer3D;
 	import flash.geom.Matrix;
 	import flash.geom.Rectangle;
@@ -39,7 +38,7 @@ package starling.extensions.defferedShading.debug
 		private static var sHelperMatrix:Matrix = new Matrix();
 		private static var sRenderAlpha:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 1.0];
 		
-		private var mTexture:Texture;
+		public var mTexture:Texture;
 		
 		private var mWidth:Number, mHeight:Number;
 		
@@ -136,6 +135,11 @@ package starling.extensions.defferedShading.debug
 		 * of its parent object. */
 		public override function render(support:RenderSupport, alpha:Number):void
 		{
+			if(!mTexture)
+			{
+				return;
+			}
+			
 			// always call this method when you write custom rendering code!
 			// it causes all previously batched quads/images to render.
 			support.finishQuadBatch();

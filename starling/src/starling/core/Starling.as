@@ -471,7 +471,7 @@ package starling.core
 			// Generate default depth texture
 			
 			var bd:BitmapData = new BitmapData(16, 16);
-			bd.fillRect(new Rectangle(0, 0, 16, 16), 0x8080FFFF);
+			bd.fillRect(new Rectangle(0, 0, 16, 16), 0xFF8080FF);
 			defaultNormalMap = Texture.fromBitmapData(bd, false);
 			
 			// Generate default depth texture
