@@ -1,4 +1,4 @@
-package starling.extensions.defferedShading.debug
+package starling.extensions.deferredShading.debug
 {
 	import com.adobe.utils.AGALMiniAssembler;
 	
@@ -15,7 +15,7 @@ package starling.extensions.defferedShading.debug
 	import starling.display.DisplayObject;
 	import starling.errors.MissingContextError;
 	import starling.events.Event;
-	import starling.extensions.defferedShading.Utils;
+	import starling.extensions.deferredShading.Utils;
 	import starling.textures.Texture;
 	import starling.utils.VertexData;
 	

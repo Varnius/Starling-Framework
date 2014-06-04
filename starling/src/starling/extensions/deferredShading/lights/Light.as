@@ -1,4 +1,4 @@
-package starling.extensions.defferedShading.lights
+package starling.extensions.deferredShading.lights
 {
 	import com.adobe.utils.AGALMiniAssembler;
 	
@@ -7,7 +7,7 @@ package starling.extensions.defferedShading.lights
 	
 	import starling.core.RenderSupport;
 	import starling.display.DisplayObject;
-	import starling.extensions.defferedShading.renderer_internal;
+	import starling.extensions.deferredShading.renderer_internal;
 	import starling.textures.Texture;
 	
 	use namespace renderer_internal;

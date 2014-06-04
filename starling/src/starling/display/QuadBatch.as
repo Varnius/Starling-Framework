@@ -28,9 +28,9 @@ package starling.display
     import starling.core.starling_internal;
     import starling.errors.MissingContextError;
     import starling.events.Event;
-    import starling.extensions.defferedShading.MaterialProperties;
-    import starling.extensions.defferedShading.RenderPass;
-    import starling.extensions.defferedShading.Utils;
+    import starling.extensions.deferredShading.MaterialProperties;
+    import starling.extensions.deferredShading.RenderPass;
+    import starling.extensions.deferredShading.Utils;
     import starling.filters.FragmentFilter;
     import starling.filters.FragmentFilterMode;
     import starling.textures.Texture;
@@ -232,9 +232,6 @@ package starling.display
             var pma:Boolean = mVertexData.premultipliedAlpha;
             var context:Context3D = Starling.context;
             var tinted:Boolean = mTinted || (parentAlpha != 1.0);
-            /*var programName:String = mTexture ? 
-                getImageProgramName(tinted, mTexture.mipMapping, mTexture.repeat, mTexture.format, mSmoothing, currPass) : 
-                (MRTPass ? QUAD_PROGRAM_NAME_DEFERRED : QUAD_PROGRAM_NAME);*/
             
             sRenderAlpha[0] = sRenderAlpha[1] = sRenderAlpha[2] = pma ? parentAlpha : 1.0;
             sRenderAlpha[3] = parentAlpha;

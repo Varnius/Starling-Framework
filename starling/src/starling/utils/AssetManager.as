@@ -597,7 +597,11 @@ package starling.utils
                             if (mKeepAtlasXmls) addXml(name, xml);
                             else System.disposeXML(xml);
                         }
-                        else log("Cannot create atlas: texture '" + name + "' is missing.");
+                        else 
+						{
+						 	mXmls[name] = xml;
+							log("Cannot create atlas: texture '" + name + "' is missing.");
+						}
                     }
                     else if (rootNode == "font")
                     {

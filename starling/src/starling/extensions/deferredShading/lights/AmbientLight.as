@@ -1,4 +1,4 @@
-package starling.extensions.defferedShading.lights
+package starling.extensions.deferredShading.lights
 {
 	import flash.geom.Rectangle;
 	

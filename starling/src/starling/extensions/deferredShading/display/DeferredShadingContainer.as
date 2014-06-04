@@ -1,4 +1,4 @@
-package starling.extensions.defferedShading.display
+package starling.extensions.deferredShading.display
 {
 	import com.adobe.utils.AGALMiniAssembler;
 	
@@ -19,12 +19,12 @@ package starling.extensions.defferedShading.display
 	import starling.display.Quad;
 	import starling.display.Sprite;
 	import starling.events.Event;
-	import starling.extensions.defferedShading.RenderPass;
-	import starling.extensions.defferedShading.Utils;
-	import starling.extensions.defferedShading.renderer_internal;
-	import starling.extensions.defferedShading.lights.AmbientLight;
-	import starling.extensions.defferedShading.lights.Light;
-	import starling.extensions.defferedShading.lights.PointLight;
+	import starling.extensions.deferredShading.RenderPass;
+	import starling.extensions.deferredShading.Utils;
+	import starling.extensions.deferredShading.renderer_internal;
+	import starling.extensions.deferredShading.lights.AmbientLight;
+	import starling.extensions.deferredShading.lights.Light;
+	import starling.extensions.deferredShading.lights.PointLight;
 	import starling.textures.Texture;
 	import starling.utils.Color;
 
@@ -37,6 +37,8 @@ package starling.extensions.defferedShading.display
 	public class DeferredShadingContainer extends Sprite
 	{		
 		protected var assembler:AGALMiniAssembler = new AGALMiniAssembler();
+		
+		private static const DEFAULT_AMBIENT:AmbientLight = new AmbientLight(0x440000, 1.0)
 		
 		// Quad
 		
@@ -200,6 +202,7 @@ package starling.extensions.defferedShading.display
 		Helpers
 		---------------------------*/
 		
+		[Inline]
 		private function renderExtended(support:RenderSupport, parentAlpha:Number):void
 		{			
 			var obj:DisplayObject;
@@ -221,13 +224,8 @@ package starling.extensions.defferedShading.display
 			stageBounds.setTo(0, 0, stage.stageWidth, stage.stageHeight);
 			
 			for each(var l:Light in lights)
-			{
+			{				
 				// If there are multiple ambient lights - use the last one added
-				
-				if(!l.visible)
-				{
-					continue;
-				}
 				
 				if(l is AmbientLight)
 				{
@@ -235,8 +233,15 @@ package starling.extensions.defferedShading.display
 					continue;
 				}
 				
-				l.getBounds(stage, tmpBounds);
+				// Skip early if light is already culled
+				// I'm using this with QuadTreeSprite
 				
+				if(!l.visible || !l.parent)
+				{
+					continue;
+				}
+				
+				l.getBounds(stage, tmpBounds);				
 				
 				if(stageBounds.containsRect(tmpBounds) || stageBounds.intersects(tmpBounds))
 				{
@@ -283,6 +288,14 @@ package starling.extensions.defferedShading.display
 			
 			for each(var o:DisplayObject in occluders)
 			{
+				// Skip early if occluder is already culled
+				// I'm using this with QuadTreeSprite
+				
+				if(!o.parent)
+				{
+					continue;
+				}
+				
 				o.getBounds(stage, tmpBounds);				
 				isVisible = stageBounds.containsRect(tmpBounds) || stageBounds.intersects(tmpBounds);
 				
@@ -452,15 +465,17 @@ package starling.extensions.defferedShading.display
 			context.setTextureAt(0, diffuseRT.base);
 			context.setTextureAt(1, lightPassRT.base);
 			context.setTextureAt(2, depthRT.base);
-			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, fragmentConstants);
-			
-			if(ambientLight)
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 0, fragmentConstants);			
+
+			if(!ambientLight)
 			{
-				ambientConstants[0] = ambientLight._colorR * ambientLight.strength;
-				ambientConstants[1] = ambientLight._colorG * ambientLight.strength;
-				ambientConstants[2] = ambientLight._colorB * ambientLight.strength;
-				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 1, ambientConstants);
+				ambientLight = DEFAULT_AMBIENT;
 			}
+			
+			ambientConstants[0] = ambientLight._colorR * ambientLight.strength;
+			ambientConstants[1] = ambientLight._colorG * ambientLight.strength;
+			ambientConstants[2] = ambientLight._colorB * ambientLight.strength;
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 1, ambientConstants);
 			
 			context.setProgram(combinedResultProgram);			
 			context.setBlendFactors(Context3DBlendFactor.SOURCE_ALPHA, Context3DBlendFactor.ONE_MINUS_SOURCE_ALPHA); 

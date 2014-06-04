@@ -454,18 +454,24 @@ package starling.core
 		
 		public var defaultNormalMap:Texture;
 		public var defaultDepthMap:Texture;		
+		public var defaultSpecularMap:Texture;
 		
 		private function initializeDefaultMaps():void
 		{
-			// Generate default depth texture
+			// Normal
 			
-			var bd:BitmapData = new BitmapData(16, 16);
-			bd.fillRect(new Rectangle(0, 0, 16, 16), 0xFF8080FF);
+			var bd:BitmapData = new BitmapData(4, 4);
+			bd.fillRect(new Rectangle(0, 0, 4, 4), 0xFF8080FF);
 			defaultNormalMap = Texture.fromBitmapData(bd, false);
 			
-			// Generate default depth texture
+			// Specular
 			
-			bd.fillRect(new Rectangle(0, 0, 16, 16), 0xFFFFFFFF);
+			bd.fillRect(new Rectangle(0, 0, 4, 4), 0xFFFFFFFF);
+			defaultSpecularMap = Texture.fromBitmapData(bd, false);
+			
+			// Depth
+			
+			bd.fillRect(new Rectangle(0, 0, 4, 4), 0xFFFFFFFF);
 			defaultDepthMap = Texture.fromBitmapData(bd, false);
 		}
 		

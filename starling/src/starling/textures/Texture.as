@@ -23,7 +23,7 @@ package starling.textures
     import starling.core.Starling;
     import starling.errors.AbstractClassError;
     import starling.errors.MissingContextError;
-    import starling.extensions.defferedShading.MaterialProperties;
+    import starling.extensions.deferredShading.MaterialProperties;
     import starling.utils.Color;
     import starling.utils.VertexData;
     import starling.utils.getNextPowerOfTwo;

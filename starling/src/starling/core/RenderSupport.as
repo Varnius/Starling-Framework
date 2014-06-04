@@ -26,7 +26,7 @@ package starling.core
     import starling.display.Quad;
     import starling.display.QuadBatch;
     import starling.errors.MissingContextError;
-    import starling.extensions.defferedShading.RenderPass;
+    import starling.extensions.deferredShading.RenderPass;
     import starling.textures.Texture;
     import starling.textures.TextureSmoothing;
     import starling.utils.Color;

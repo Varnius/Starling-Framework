@@ -1,5 +1,5 @@
 
-package starling.extensions.defferedShading
+package starling.extensions.deferredShading
 {
 	public class Utils
 	{

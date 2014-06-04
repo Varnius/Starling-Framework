@@ -1,4 +1,4 @@
-package starling.extensions.defferedShading.lights
+package starling.extensions.deferredShading.lights
 {
 	import com.adobe.utils.AGALMiniAssembler;
 	
@@ -17,10 +17,10 @@ package starling.extensions.defferedShading.lights
 	import starling.display.DisplayObject;
 	import starling.errors.MissingContextError;
 	import starling.events.Event;
-	import starling.extensions.defferedShading.MaterialProperties;
-	import starling.extensions.defferedShading.RenderPass;
-	import starling.extensions.defferedShading.Utils;
-	import starling.extensions.defferedShading.renderer_internal;
+	import starling.extensions.deferredShading.MaterialProperties;
+	import starling.extensions.deferredShading.RenderPass;
+	import starling.extensions.deferredShading.Utils;
+	import starling.extensions.deferredShading.renderer_internal;
 	import starling.textures.Texture;
 	import starling.utils.VertexData;
 	
@@ -195,7 +195,12 @@ package starling.extensions.defferedShading.lights
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 8, atan2Constants, 2);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 10, constants2, 1);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 11, blurConstants, 3);
-			}	
+			}
+			
+			var rr:Number = Math.sqrt((radius * radius) / 2);
+			var xxx:Vector.<Number> = new <Number>[rr,0,0,0];
+			
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 14, xxx, 1);
 			
 			context.drawTriangles(indexBuffer, 0, mNumEdges);
 			
@@ -314,6 +319,7 @@ package starling.extensions.defferedShading.lights
 			// fc11 - blur constants [0.05, 0.09, 0.12, 0.15]
 			// fc12 - blur constants [1, 2, 3, 4]
 			// fc13 - blur constants [0.16, -1, 0, 0]
+			// fc14 - [lightHeight (fake), 0, 0, 0]
 			
 			var fragmentProgramCode:String =
 				Utils.joinProgramArray(
@@ -327,13 +333,15 @@ package starling.extensions.defferedShading.lights
 						
 						// Sample normals to ft1
 						
-						'tex ft1, ft0.xy, fs0 <2d, clamp, linear, mipnone>',
+						'tex ft1, ft0.xy, fs0 <2d, clamp, linear, mipnone>',						
 						
 						// Then unpack normals from [0, 1] to [-1, 1]
 						// by multiplying by 2 and then subtracting 1
 						
 						'mul ft1.xyz, ft1.xyz, fc0.zzz',
 						'sub ft1.xyz, ft1.xyz, fc0.yyy',
+						
+						'nrm ft1.xyz, ft1.xyz',
 						
 						// Sample depth to ft2 
 						
@@ -350,6 +358,7 @@ package starling.extensions.defferedShading.lights
 						
 						'mul ft3.xyxy, ft0.xyxy, fc1.zwzw',
 						'mov ft21.xy, ft3.xy', // save for shadow calculations
+						'mov ft21.z, fc0.w',
 						
 						// float3 lightDirection = lightPosition - pixelPosition;
 						'sub ft3.xy, fc1.xy, ft3.xy',
@@ -368,7 +377,23 @@ package starling.extensions.defferedShading.lights
 						// float amount = max(dot(normal, lightDirNorm), 0);
 						// Put it in ft5.x
 						'dp3 ft5.x, ft1.xyz, ft4.xyz',
-						'max ft5.x, ft5.x, fc0.w',
+						'max ft5.x, ft5.x, fc0.w',							
+						
+						// -- Use fake 3D light position with normal map
+						
+						// Set ft15 to light position (with fake height)
+						'mov ft15.xy, fc1.xy',
+						'mov ft15.z, fc14.x',
+						
+						//vec3 lightDirection = normalize(uPointLightingLocation - vPosition.xyz);
+						'sub ft16.xyz, ft15.xyz, ft21.xyz',
+						'nrm ft16.xyz, ft16.xyz',						
+						
+						//float directionalLightWeighting = max(dot(normalize(vTransformedNormal), lightDirection), 0.0);
+						'dp3 ft17.x, ft1.xyz, ft16.xyz',
+						'max ft17.x, ft17.x, fc0.w',
+						
+						// -- fake 3D end
 						
 						// Linear attenuation
 						// http://blog.slindev.com/2011/01/10/natural-light-attenuation/
@@ -398,6 +423,7 @@ package starling.extensions.defferedShading.lights
 						// Output.Color = lightColor * coneAttenuation * lightStrength
 						'mul ft6.xyz, ft5.yyy, fc3.xyz',
 						'mul ft6.xyz, ft6.xyz, fc2.y',
+						'mul ft6.xyz, ft6.xyz, ft17.x',
 						
 						// + (coneAttenuation * specular * specularStrength)
 						// And don`t apply specular here - move it to alpha channel of the output

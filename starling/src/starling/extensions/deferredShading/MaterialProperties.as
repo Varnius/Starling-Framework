@@ -1,4 +1,4 @@
-package starling.extensions.defferedShading
+package starling.extensions.deferredShading
 {
 	import starling.textures.Texture;
 
@@ -12,13 +12,15 @@ package starling.extensions.defferedShading
 		
 		public var normalMap:Texture;
 		public var depthMap:Texture;
+		public var specularMap:Texture;
 		public var specularIntensity:Number = DEFAULT_SPECULAR_INTENSITY;
 		public var specularPower:Number = DEFAULT_SPECULAR_POWER;
 		
-		public function MaterialProperties(normalMap:Texture = null, depthMap:Texture = null)
+		public function MaterialProperties(normalMap:Texture = null, depthMap:Texture = null, specularMap:Texture = null)
 		{
 			this.normalMap = normalMap;
 			this.depthMap = depthMap;
+			this.specularMap = specularMap;
 		}
 	}
 }
