@@ -2,6 +2,7 @@ package starling.utils
 {
     import flash.display.Bitmap;
     import flash.display.Loader;
+    import flash.display.LoaderInfo;
     import flash.events.HTTPStatusEvent;
     import flash.events.IOErrorEvent;
     import flash.events.ProgressEvent;
@@ -507,7 +508,7 @@ package starling.utils
                 asset = unescape(asset["url"]);
             
             if (name == null)    name = getName(asset);
-            if (options == null) options = mDefaultTextureOptions;
+            if (options == null) options = mDefaultTextureOptions.clone();
             else                 options = options.clone();
             
             log("Enqueuing '" + name + "'");
@@ -733,14 +734,32 @@ package starling.utils
                     }
                     else if (byteArrayStartsWith(bytes, "{") || byteArrayStartsWith(bytes, "["))
                     {
-                        addObject(name, JSON.parse(bytes.readUTFBytes(bytes.length)));
-                        bytes.clear();
+                        try
+                        {
+                            addObject(name, JSON.parse(bytes.readUTFBytes(bytes.length)));
+                            bytes.clear();
+                        }
+                        catch (e:Error)
+                        {
+                            log("Could not parse JSON: " + e.message);
+                            addByteArray(name, bytes);
+                        }
+
                         onComplete();
                     }
                     else if (byteArrayStartsWith(bytes, "<"))
                     {
-                        process(new XML(bytes));
-                        bytes.clear();
+                        try
+                        {
+                            process(new XML(bytes));
+                            bytes.clear();
+                        }
+                        catch (e:Error)
+                        {
+                            log("Could not parse XML: " + e.message);
+                            addByteArray(name, bytes);
+                            onComplete();
+                        }
                     }
                     else
                     {
@@ -750,7 +769,7 @@ package starling.utils
                 }
                 else
                 {
-                    log("Ignoring unsupported asset type: " + getQualifiedClassName(asset));
+                    addObject(name, asset);
                     onComplete();
                 }
                 
@@ -772,9 +791,25 @@ package starling.utils
             }
         }
         
-        private function loadRawAsset(rawAsset:Object, onProgress:Function, onComplete:Function):void
+        /** This method is called internally for each element of the queue when it is loaded.
+         *  'rawAsset' is typically either a class (pointing to an embedded asset) or a string
+         *  (containing the path to a file). For texture data, it will also be called after a
+         *  context loss.
+         *
+         *  <p>The method has to transform this object into one of the types that the AssetManager
+         *  can work with, e.g. a Bitmap, a Sound, XML data, or a ByteArray. This object needs to
+         *  be passed to the 'onComplete' callback.</p>
+         *
+         *  <p>The calling method will then process this data accordingly (e.g. a Bitmap will be
+         *  transformed into a texture). Unknown types will be available via 'getObject()'.</p>
+         *
+         *  <p>When overriding this method, you can call 'onProgress' with a number between 0 and 1
+         *  to update the total queue loading progress.</p>
+         */
+        protected function loadRawAsset(rawAsset:Object, onProgress:Function, onComplete:Function):void
         {
             var extension:String = null;
+            var loaderInfo:LoaderInfo = null;
             var urlLoader:URLLoader = null;
             var url:String = null;
             
@@ -825,11 +860,6 @@ package starling.utils
                 var bytes:ByteArray = transformData(urlLoader.data as ByteArray, url);
                 var sound:Sound;
                 
-                urlLoader.removeEventListener(IOErrorEvent.IO_ERROR, onIoError);
-                urlLoader.removeEventListener(HTTP_RESPONSE_STATUS, onHttpResponseStatus);
-                urlLoader.removeEventListener(ProgressEvent.PROGRESS, onLoadProgress);
-                urlLoader.removeEventListener(Event.COMPLETE, onUrlLoaderComplete);
-                
                 if (extension)
                     extension = extension.toLowerCase();
 
@@ -849,7 +879,9 @@ package starling.utils
                         var loaderContext:LoaderContext = new LoaderContext(mCheckPolicyFile);
                         var loader:Loader = new Loader();
                         loaderContext.imageDecodingPolicy = ImageDecodingPolicy.ON_LOAD;
-                        loader.contentLoaderInfo.addEventListener(Event.COMPLETE, onLoaderComplete);
+                        loaderInfo = loader.contentLoaderInfo;
+                        loaderInfo.addEventListener(IOErrorEvent.IO_ERROR, onIoError);
+                        loaderInfo.addEventListener(Event.COMPLETE, onLoaderComplete);
                         loader.loadBytes(bytes, loaderContext);
                         break;
                     default: // any XML / JSON / binary data 
@@ -861,12 +893,27 @@ package starling.utils
             function onLoaderComplete(event:Object):void
             {
                 urlLoader.data.clear();
-                event.target.removeEventListener(Event.COMPLETE, onLoaderComplete);
                 complete(event.target.content);
             }
             
             function complete(asset:Object):void
             {
+                // clean up event listeners
+
+                if (urlLoader)
+                {
+                    urlLoader.removeEventListener(IOErrorEvent.IO_ERROR, onIoError);
+                    urlLoader.removeEventListener(HTTP_RESPONSE_STATUS, onHttpResponseStatus);
+                    urlLoader.removeEventListener(ProgressEvent.PROGRESS, onLoadProgress);
+                    urlLoader.removeEventListener(Event.COMPLETE, onUrlLoaderComplete);
+                }
+
+                if (loaderInfo)
+                {
+                    loaderInfo.removeEventListener(IOErrorEvent.IO_ERROR, onIoError);
+                    loaderInfo.removeEventListener(Event.COMPLETE, onLoaderComplete);
+                }
+
                 // On mobile, it is not allowed / endorsed to make stage3D calls while the app
                 // is in the background. Thus, we pause queue processing if that's the case.
                 
@@ -885,7 +932,6 @@ package starling.utils
          *  assets. */
         protected function getName(rawAsset:Object):String
         {
-            var matches:Array;
             var name:String;
             
             if (rawAsset is String || rawAsset is FileReference)
@@ -978,14 +1024,16 @@ package starling.utils
             return null;
         }
 
-        private function getBasenameFromUrl(url:String):String
+        /** Extracts the base name of a file path or URL, i.e. the file name without extension. */
+        protected function getBasenameFromUrl(url:String):String
         {
             var matches:Array = NAME_REGEX.exec(url);
             if (matches && matches.length > 0) return matches[1];
             else return null;
         }
 
-        private function getExtensionFromUrl(url:String):String
+        /** Extracts the file extension from an URL. */
+        protected function getExtensionFromUrl(url:String):String
         {
             var matches:Array = NAME_REGEX.exec(url);
             if (matches && matches.length > 1) return matches[2];
@@ -1003,7 +1051,7 @@ package starling.utils
             {
                 newCallback();
                 oldCallback();
-            }
+            };
         }
 
         // properties
@@ -1015,24 +1063,30 @@ package starling.utils
         /** Returns the number of raw assets that have been enqueued, but not yet loaded. */
         public function get numQueuedAssets():int { return mQueue.length; }
         
-        /** When activated, the class will trace information about added/enqueued assets. */
+        /** When activated, the class will trace information about added/enqueued assets.
+         *  @default false */
         public function get verbose():Boolean { return mVerbose; }
         public function set verbose(value:Boolean):void { mVerbose = value; }
         
         /** For bitmap textures, this flag indicates if mip maps should be generated when they 
          *  are loaded; for ATF textures, it indicates if mip maps are valid and should be
-         *  used. */
+         *  used. @default false */
         public function get useMipMaps():Boolean { return mDefaultTextureOptions.mipMapping; }
         public function set useMipMaps(value:Boolean):void { mDefaultTextureOptions.mipMapping = value; }
         
         /** Textures that are created from Bitmaps or ATF files will have the scale factor 
-         *  assigned here. */
+         *  assigned here. @default 1 */
         public function get scaleFactor():Number { return mDefaultTextureOptions.scale; }
         public function set scaleFactor(value:Number):void { mDefaultTextureOptions.scale = value; }
+
+        /** Textures that are created from Bitmaps will be uploaded to the GPU with the
+         *  <code>Context3DTextureFormat</code> assigned to this property. @default "bgra" */
+        public function get textureFormat():String { return mDefaultTextureOptions.format; }
+        public function set textureFormat(value:String):void { mDefaultTextureOptions.format = value; }
         
         /** Specifies whether a check should be made for the existence of a URL policy file before
          *  loading an object from a remote server. More information about this topic can be found 
-         *  in the 'flash.system.LoaderContext' documentation. */
+         *  in the 'flash.system.LoaderContext' documentation. @default false */
         public function get checkPolicyFile():Boolean { return mCheckPolicyFile; }
         public function set checkPolicyFile(value:Boolean):void { mCheckPolicyFile = value; }
 

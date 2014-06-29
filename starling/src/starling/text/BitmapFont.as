@@ -20,6 +20,7 @@ package starling.text
     import starling.textures.TextureSmoothing;
     import starling.utils.HAlign;
     import starling.utils.VAlign;
+    import starling.utils.cleanMasterString;
 
     /** The BitmapFont class parses bitmap font files and arranges the glyphs 
      *  in the form of a text.
@@ -112,12 +113,12 @@ package starling.text
             var frameX:Number = frame ? frame.x : 0;
             var frameY:Number = frame ? frame.y : 0;
             
-            mName = fontXml.info.attribute("face");
-            mSize = parseFloat(fontXml.info.attribute("size")) / scale;
-            mLineHeight = parseFloat(fontXml.common.attribute("lineHeight")) / scale;
-            mBaseline = parseFloat(fontXml.common.attribute("base")) / scale;
+            mName = cleanMasterString(fontXml.info.@face);
+            mSize = parseFloat(fontXml.info.@size) / scale;
+            mLineHeight = parseFloat(fontXml.common.@lineHeight) / scale;
+            mBaseline = parseFloat(fontXml.common.@base) / scale;
             
-            if (fontXml.info.attribute("smooth").toString() == "0")
+            if (fontXml.info.@smooth.toString() == "0")
                 smoothing = TextureSmoothing.NONE;
             
             if (mSize <= 0)
@@ -128,16 +129,16 @@ package starling.text
             
             for each (var charElement:XML in fontXml.chars.char)
             {
-                var id:int = parseInt(charElement.attribute("id"));
-                var xOffset:Number = parseFloat(charElement.attribute("xoffset")) / scale;
-                var yOffset:Number = parseFloat(charElement.attribute("yoffset")) / scale;
-                var xAdvance:Number = parseFloat(charElement.attribute("xadvance")) / scale;
+                var id:int = parseInt(charElement.@id);
+                var xOffset:Number  = parseFloat(charElement.@xoffset)  / scale;
+                var yOffset:Number  = parseFloat(charElement.@yoffset)  / scale;
+                var xAdvance:Number = parseFloat(charElement.@xadvance) / scale;
                 
                 var region:Rectangle = new Rectangle();
-                region.x = parseFloat(charElement.attribute("x")) / scale + frameX;
-                region.y = parseFloat(charElement.attribute("y")) / scale + frameY;
-                region.width  = parseFloat(charElement.attribute("width")) / scale;
-                region.height = parseFloat(charElement.attribute("height")) / scale;
+                region.x = parseFloat(charElement.@x) / scale + frameX;
+                region.y = parseFloat(charElement.@y) / scale + frameY;
+                region.width  = parseFloat(charElement.@width)  / scale;
+                region.height = parseFloat(charElement.@height) / scale;
                 
                 var texture:Texture = Texture.fromTexture(mTexture, region);
                 var bitmapChar:BitmapChar = new BitmapChar(id, texture, xOffset, yOffset, xAdvance); 
@@ -146,9 +147,9 @@ package starling.text
             
             for each (var kerningElement:XML in fontXml.kernings.kerning)
             {
-                var first:int = parseInt(kerningElement.attribute("first"));
-                var second:int = parseInt(kerningElement.attribute("second"));
-                var amount:Number = parseFloat(kerningElement.attribute("amount")) / scale;
+                var first:int  = parseInt(kerningElement.@first);
+                var second:int = parseInt(kerningElement.@second);
+                var amount:Number = parseFloat(kerningElement.@amount) / scale;
                 if (second in mChars) getChar(second).addKerning(first, amount);
             }
         }
@@ -170,8 +171,8 @@ package starling.text
         {
             if (result == null) result = new <int>[];
 
-            for(var key:int in mChars)
-                result[result.length] = key;
+            for(var key:* in mChars)
+                result[result.length] = int(key);
 
             return result;
         }
@@ -188,9 +189,11 @@ package starling.text
             {
                 charID = text.charCodeAt(i);
 
-                if (charID == CHAR_SPACE || charID == CHAR_TAB || charID == CHAR_NEWLINE ||
-                    charID == CHAR_CARRIAGE_RETURN) continue;
-                else if (getChar(charID) == null) return false;
+                if (charID != CHAR_SPACE && charID != CHAR_TAB && charID != CHAR_NEWLINE &&
+                    charID != CHAR_CARRIAGE_RETURN && getChar(charID) == null)
+                {
+                    return false;
+                }
             }
 
             return true;
@@ -438,6 +441,9 @@ package starling.text
          *  Useful to make up for incorrect font data. @default 0. */
         public function get offsetY():Number { return mOffsetY; }
         public function set offsetY(value:Number):void { mOffsetY = value; }
+
+        /** The underlying texture that contains all the chars. */
+        public function get texture():Texture { return mTexture; }
     }
 }
 
