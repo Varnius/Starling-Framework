@@ -72,6 +72,7 @@ package starling.extensions.deferredShading.lights
 			1.0, 2.0, 3.0, 4.0,
 			0.18, -1.0, 0.0, 0.0
 		];
+		private var fakeLightHeight:Vector.<Number> = new <Number>[0, 0, 0, 0];
 		
 		// Shadowmap
 		
@@ -174,6 +175,8 @@ package starling.extensions.deferredShading.lights
 			specularParams[0] = MaterialProperties.SPECULAR_POWER_SCALE;
 			specularParams[1] = MaterialProperties.SPECULAR_INTENSITY_SCALE;
 			
+			fakeLightHeight[0] = Math.sqrt((radius * radius) / 2);
+			
 			// Activate program (shader) and set the required buffers / constants 
 			
 			context.setProgram(Starling.current.getProgram(_castsShadows ? POINT_LIGHT_PROGRAM_WITH_SHADOWS : POINT_LIGHT_PROGRAM));
@@ -195,13 +198,9 @@ package starling.extensions.deferredShading.lights
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 8, atan2Constants, 2);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 10, constants2, 1);
 				context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 11, blurConstants, 3);
-			}
+			}			
 			
-			var rr:Number = Math.sqrt((radius * radius) / 2);
-			var xxx:Vector.<Number> = new <Number>[rr,0,0,0];
-			
-			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 14, xxx, 1);
-			
+			context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 14, fakeLightHeight, 1);			
 			context.drawTriangles(indexBuffer, 0, mNumEdges);
 			
 			context.setVertexBufferAt(0, null);

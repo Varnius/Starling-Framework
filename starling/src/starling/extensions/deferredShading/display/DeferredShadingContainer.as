@@ -480,6 +480,7 @@ package starling.extensions.deferredShading.display
 			context.setProgram(combinedResultProgram);			
 			context.setBlendFactors(Context3DBlendFactor.SOURCE_ALPHA, Context3DBlendFactor.ONE_MINUS_SOURCE_ALPHA); 
 			
+			support.clear();
 			context.drawTriangles(overlayIndexBuffer);
 			
 			// Clean up
