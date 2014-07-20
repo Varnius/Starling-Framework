@@ -379,7 +379,7 @@ package starling.extensions.deferredShading.display
 				}				
 			}
 			
-			context.setDepthTest(false, Context3DCompareMode.ALWAYS);
+			context.setDepthTest(false, Context3DCompareMode.ALWAYS);	
 			
 			/*----------------------------------
 			Light pass
@@ -493,12 +493,6 @@ package starling.extensions.deferredShading.display
 			
 			support.raiseDrawCount();
 		}
-		
-		/*---------------------------
-		Properties
-		---------------------------*/
-		
-		// ..
 		
 		/*---------------------------
 		Programs
