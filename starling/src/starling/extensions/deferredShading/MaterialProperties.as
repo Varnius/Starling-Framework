@@ -8,7 +8,7 @@ package starling.extensions.deferredShading
 		public static const SPECULAR_INTENSITY_SCALE:Number = 50.0;
 		
 		public static const DEFAULT_SPECULAR_POWER:Number = 10.0;
-		public static const DEFAULT_SPECULAR_INTENSITY:Number = 1.0;
+		public static const DEFAULT_SPECULAR_INTENSITY:Number = 3.0;
 		
 		public var normalMap:Texture;
 		public var depthMap:Texture;
