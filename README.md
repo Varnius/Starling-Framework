@@ -12,7 +12,6 @@ Deferred renderer currently supports:
 
 TODOs:
 
-* Optimize rendering - some passes can be removed.
 * Spotlights.
 
 Example project can be found [here](https://github.com/Varnius/StarlingDynamicShadows2D)
