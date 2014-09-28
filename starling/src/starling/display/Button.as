@@ -28,16 +28,17 @@ package starling.display
     
     /** A simple button composed of an image and, optionally, text.
      *  
-     *  <p>You can pass a texture for up- and downstate of the button. If you do not provide a down 
-     *  state, the button is simply scaled a little when it is touched.
-     *  In addition, you can overlay a text on the button. To customize the text, almost the 
-     *  same options as those of text fields are provided. In addition, you can move the text to a 
-     *  certain position with the help of the <code>textBounds</code> property.</p>
+     *  <p>You can use different textures for various states of the button. If you're providing
+     *  only an up state, the button is simply scaled a little when it is touched.</p>
+     *
+     *  <p>In addition, you can overlay text on the button. To customize the text, you can use
+     *  properties equivalent to those of the TextField class. Move the text to a certain position
+     *  by updating the <code>textBounds</code> property.</p>
      *  
-     *  <p>To react on touches on a button, there is special <code>triggered</code>-event type. Use
-     *  this event instead of normal touch events - that way, users can cancel button activation
-     *  by moving the mouse/finger away from the button before releasing.</p> 
-     */ 
+     *  <p>To react on touches on a button, there is special <code>Event.TRIGGERED</code> event.
+     *  Use this event instead of normal touch events. That way, users can cancel button
+     *  activation by moving the mouse/finger away from the button before releasing.</p>
+     */
     public class Button extends DisplayObjectContainer
     {
         private static const MAX_DRAG_DIST:Number = 50;
@@ -48,7 +49,7 @@ package starling.display
         private var mDisabledState:Texture;
         
         private var mContents:Sprite;
-        private var mBackground:Image;
+        private var mBody:Image;
         private var mTextField:TextField;
         private var mTextBounds:Rectangle;
         private var mOverlay:Sprite;
@@ -60,19 +61,20 @@ package starling.display
         private var mState:String;
         
         /** Creates a button with a set of state-textures and (optionally) some text.
-         *  Any state that is left 'null' will display the up-state texture. */
+         *  Any state that is left 'null' will display the up-state texture. Beware that all
+         *  state textures should have the same dimensions. */
         public function Button(upState:Texture, text:String="", downState:Texture=null,
                                overState:Texture=null, disabledState:Texture=null)
         {
-            if (upState == null) throw new ArgumentError("Texture cannot be null");
+            if (upState == null) throw new ArgumentError("Texture 'upState' cannot be null");
             
             mUpState = upState;
-            mDownState = downState ? downState : upState;
-            mOverState = overState ? overState : upState;
-            mDisabledState = disabledState ? disabledState : upState;
+            mDownState = downState;
+            mOverState = overState;
+            mDisabledState = disabledState;
 
             mState = ButtonState.UP;
-            mBackground = new Image(upState);
+            mBody = new Image(upState);
             mScaleWhenDown = downState ? 1.0 : 0.9;
             mAlphaWhenDisabled = disabledState ? 1.0: 0.5;
             mEnabled = true;
@@ -80,7 +82,7 @@ package starling.display
             mTextBounds = new Rectangle(0, 0, upState.width, upState.height);            
             
             mContents = new Sprite();
-            mContents.addChild(mBackground);
+            mContents.addChild(mBody);
             addChild(mContents);
             addEventListener(TouchEvent.TOUCH, onTouch);
             
@@ -98,6 +100,18 @@ package starling.display
             super.dispose();
         }
         
+        /** Readjusts the dimensions of the button according to its current state texture.
+         *  Call this method to synchronize button and texture size after assigning a texture
+         *  with a different size. Per default, this method also resets the bounds of the
+         *  button's text. */
+        public function readjustSize(resetTextBounds:Boolean=true):void
+        {
+            mBody.readjustSize();
+
+            if (resetTextBounds && mTextField != null)
+                textBounds = new Rectangle(0, 0, mBody.width, mBody.height);
+        }
+
         private function createTextField():void
         {
             if (mTextField == null)
@@ -169,26 +183,31 @@ package starling.display
             switch (mState)
             {
                 case ButtonState.DOWN:
-                    mBackground.texture = mDownState;
+                    setStateTexture(mDownState);
                     mContents.scaleX = mContents.scaleY = scaleWhenDown;
-                    mContents.x = (1.0 - scaleWhenDown) / 2.0 * mBackground.width;
-                    mContents.y = (1.0 - scaleWhenDown) / 2.0 * mBackground.height;
+                    mContents.x = (1.0 - scaleWhenDown) / 2.0 * mBody.width;
+                    mContents.y = (1.0 - scaleWhenDown) / 2.0 * mBody.height;
                     break;
                 case ButtonState.UP:
-                    mBackground.texture = mUpState;
+                    setStateTexture(mUpState);
                     mContents.x = mContents.y = 0;
                     break;
                 case ButtonState.OVER:
-                    mBackground.texture = mOverState;
+                    setStateTexture(mOverState);
                     mContents.x = mContents.y = 0;
                     break;
                 case ButtonState.DISABLED:
-                    mBackground.texture = mDisabledState;
+                    setStateTexture(mDisabledState);
                     mContents.x = mContents.y = 0;
                     break;
                 default:
                     throw new ArgumentError("Invalid button state: " + mState);
             }
+        }
+
+        private function setStateTexture(texture:Texture):void
+        {
+            mBody.texture = texture ? texture : mUpState;
         }
 
         /** The scale factor of the button on touch. Per default, a button with a down state 
@@ -271,10 +290,13 @@ package starling.display
         public function get upState():Texture { return mUpState; }
         public function set upState(value:Texture):void
         {
+            if (value == null)
+                throw new ArgumentError("Texture 'upState' cannot be null");
+
             if (mUpState != value)
             {
                 mUpState = value;
-                if (mState == ButtonState.UP) mBackground.texture = value;
+                if (mState == ButtonState.UP) setStateTexture(value);
             }
         }
         
@@ -285,7 +307,7 @@ package starling.display
             if (mDownState != value)
             {
                 mDownState = value;
-                if (mState == ButtonState.DOWN) mBackground.texture = value;
+                if (mState == ButtonState.DOWN) setStateTexture(value);
             }
         }
 
@@ -296,7 +318,7 @@ package starling.display
             if (mOverState != value)
             {
                 mOverState = value;
-                if (mState == ButtonState.OVER) mBackground.texture = value;
+                if (mState == ButtonState.OVER) setStateTexture(value);
             }
         }
 
@@ -307,7 +329,7 @@ package starling.display
             if (mDisabledState != value)
             {
                 mDisabledState = value;
-                if (mState == ButtonState.DISABLED) mBackground.texture = value;
+                if (mState == ButtonState.DISABLED) setStateTexture(value);
             }
         }
         
@@ -345,8 +367,8 @@ package starling.display
         
         /** The color of the button's state image. Just like every image object, each pixel's
          *  color is multiplied with this value. @default white */
-        public function get color():uint { return mBackground.color; }
-        public function set color(value:uint):void { mBackground.color = value; }
+        public function get color():uint { return mBody.color; }
+        public function set color(value:uint):void { mBody.color = value; }
 
         /** The overlay sprite is displayed on top of the button contents. It scales with the
          *  button when pressed. Use it to add additional objects to the button (e.g. an icon). */

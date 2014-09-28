@@ -102,6 +102,7 @@ package starling.display
 		private var deferredQuadNormal:Vector.<Number> = new <Number>[0.5, 0.5, 1.0, 1.0];		
 		private var deferredQuadSpecularParams:Vector.<Number> = new <Number>[MaterialProperties.DEFAULT_SPECULAR_POWER, MaterialProperties.DEFAULT_SPECULAR_INTENSITY, 1.0, 0.0];
 		private var specularParams:Vector.<Number> = new <Number>[0.0, 0.0, 0.0, 0.0];
+		private var constants:Vector.<Number> = new <Number>[1.0, 0.0, 0.0, 0.0];
         
         /** Creates a new QuadBatch instance with empty batch data. */
         public function QuadBatch()
@@ -163,6 +164,10 @@ package starling.display
         private function expand():void
         {
             var oldCapacity:int = this.capacity;
+
+            if (oldCapacity >= MAX_NUM_QUADS)
+                throw new Error("Exceeded maximum number of quads!");
+
             this.capacity = oldCapacity < 8 ? 16 : oldCapacity * 2;
         }
         
@@ -282,12 +287,11 @@ package starling.display
 					}				
 					
 					// Set specular params constants, fc5
-					// Also, scale to fit into range of [0.0, 1.0] as all output is clipped when non-float RT is used
 					
 					if(propsPresent)
 					{
-						specularParams[0] = mTexture.materialProperties.specularPower / MaterialProperties.SPECULAR_POWER_SCALE;						
-						specularParams[1] = mTexture.materialProperties.specularIntensity / MaterialProperties.SPECULAR_INTENSITY_SCALE;
+						specularParams[0] = mTexture.materialProperties.specularPower;						
+						specularParams[1] = mTexture.materialProperties.specularIntensity;
 					}
 					else
 					{
@@ -296,6 +300,7 @@ package starling.display
 					}
 					
 					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, specularParams, 1);
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, constants, 1);
 					
 					// Set samplers	
 					
@@ -313,6 +318,7 @@ package starling.display
 					// Set default normal color for quads				
 					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 5, deferredQuadNormal, 1);					
 					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 6, deferredQuadSpecularParams, 1);
+					context.setProgramConstantsFromVector(Context3DProgramType.FRAGMENT, 7, constants, 1);
 				}				 
 			}
             
@@ -894,7 +900,11 @@ package starling.display
 				// normal map and wants to use it for the area covered by diffuse color
 				'mul ft4, ft4, ft1.w',
 				'mov oc1, ft4',
-				'mul ft3, ft3, ft1.w',				
+				'mul ft3, ft3, ft1.w',
+				
+				// Multiply diffuse by 1 minus depth value
+				'sub ft5.x, fc6.x, ft3.x',
+				'mul ft1.xyz, ft1.xyz, ft5.x',
 				
 				'mov oc2, ft3'
 			]

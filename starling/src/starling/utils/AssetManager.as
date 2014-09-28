@@ -18,7 +18,6 @@ package starling.utils
     import flash.system.System;
     import flash.utils.ByteArray;
     import flash.utils.Dictionary;
-    import flash.utils.clearTimeout;
     import flash.utils.describeType;
     import flash.utils.getQualifiedClassName;
     import flash.utils.setTimeout;
@@ -36,6 +35,10 @@ package starling.utils
     /** Dispatched when all textures have been restored after a context loss. */
     [Event(name="texturesRestored", type="starling.events.Event")]
     
+    /** Dispatched when an URLLoader fails with an IO_ERROR while processing the queue.
+     *  The 'data' property of the Event contains the URL-String that could not be loaded. */
+    [Event(name="ioError", type="starling.events.Event")]
+
     /** The AssetManager handles loading and accessing a variety of asset types. You can 
      *  add assets directly (via the 'add...' methods) or asynchronously via a queue. This allows
      *  you to deal with assets in a unified way, no matter if they are loaded from a file, 
@@ -79,10 +82,7 @@ package starling.utils
         private var mKeepAtlasXmls:Boolean;
         private var mKeepFontXmls:Boolean;
         private var mVerbose:Boolean;
-        
         private var mQueue:Array;
-        private var mIsLoading:Boolean;
-        private var mTimeoutID:uint;
         
         private var mTextures:Dictionary;
         private var mAtlases:Dictionary;
@@ -394,9 +394,7 @@ package starling.utils
         /** Empties the queue and aborts any pending load operations. */
         public function purgeQueue():void
         {
-            mIsLoading = false;
             mQueue.length = 0;
-            clearTimeout(mTimeoutID);
             dispatchEventWith(Event.CANCEL);
         }
         
@@ -534,43 +532,67 @@ package starling.utils
          */
         public function loadQueue(onProgress:Function):void
         {
+            if (onProgress == null)
+                throw new ArgumentError("Argument 'onProgress' must not be null");
+
+            if (mQueue.length == 0)
+            {
+                onProgress(1.0);
+                return;
+            }
+
             mStarling = Starling.current;
             
             if (mStarling == null || mStarling.context == null)
                 throw new Error("The Starling instance needs to be ready before textures can be loaded.");
             
-            if (mIsLoading)
-                throw new Error("The queue is already being processed");
-            
             var xmls:Vector.<XML> = new <XML>[];
-            var numElements:int = mQueue.length;
-            var currentRatio:Number = 0.0;
+            var assetCount:int = mQueue.length;
+            var assetProgress:Array = [];
+            var canceled:Boolean = false;
+            var i:int;
             
-            mIsLoading = true;
-            resume();
-            
-            function resume():void
+            for (i=0; i<assetCount; ++i)
             {
-                currentRatio = mQueue.length ? 1.0 - (mQueue.length / numElements) : 1.0;
+                assetProgress[i] = 0.0;
+                setTimeout(loadQueueElement, i*5, i, mQueue[i]);
+            }
+
+            mQueue.length = 0;
+            addEventListener(Event.CANCEL, cancel);
+
+            function loadQueueElement(index:int, assetInfo:Object):void
+            {
+                if (canceled) return;
                 
-                if (mQueue.length)
-                    mTimeoutID = setTimeout(processNext, 1);
-                else
+                var onElementProgress:Function = function(progress:Number):void
                 {
-                    processXmls();
-                    mIsLoading = false;
+                    updateProgress(index, progress * 0.8); // keep 20 % for completion
+                };
+                var onElementLoaded:Function = function():void
+                {
+                    updateProgress(index, 1.0);
+                    assetCount--;
+
+                    if (assetCount == 0)
+                        finish();
                 }
                 
-                if (onProgress != null)
-                    onProgress(currentRatio);
+                processRawAsset(assetInfo.name, assetInfo.asset, assetInfo.options,
+                    xmls, onElementProgress, onElementLoaded);
             }
             
-            function processNext():void
+            function updateProgress(index:int, progress:Number):void
             {
-                var assetInfo:Object = mQueue.shift();
-                clearTimeout(mTimeoutID);
-                processRawAsset(assetInfo.name, assetInfo.asset, assetInfo.options,
-                                xmls, progress, resume);
+                assetProgress[index] = progress;
+
+                var sum:Number = 0.0;
+                var len:int = assetProgress.length;
+
+                for (i=0; i<len; ++i)
+                    sum += assetProgress[i];
+
+                onProgress(sum / len * 0.9);
             }
             
             function processXmls():void
@@ -627,9 +649,30 @@ package starling.utils
                 }
             }
             
-            function progress(ratio:Number):void
+            function cancel():void
             {
-                onProgress(currentRatio + (1.0 / numElements) * Math.min(1.0, ratio) * 0.99);
+                removeEventListener(Event.CANCEL, cancel);
+                canceled = true;
+            }
+
+            function finish():void
+            {
+                // We dance around the final "onProgress" call with some "setTimeout" calls here
+                // to make sure the progress bar gets the chance to be rendered. Otherwise, all
+                // would happen in one frame.
+
+                setTimeout(function():void
+                {
+                    processXmls();
+                    setTimeout(function():void
+                    {
+                        if (!canceled)
+                        {
+                            removeEventListener(Event.CANCEL, cancel);
+                            onProgress(1.0);
+                        }
+                    }, 1);
+                }, 1);
             }
         }
         
@@ -646,6 +689,8 @@ package starling.utils
             {
                 var texture:Texture;
                 var bytes:ByteArray;
+                var object:Object = null;
+                var xml:XML = null;
                 
                 // the 'current' instance might have changed by now
                 // if we're running in a set-up with multiple instances.
@@ -666,10 +711,9 @@ package starling.utils
                 }
                 else if (asset is XML)
                 {
-                    var xml:XML = asset as XML;
-                    var rootNode:String = xml.localName();
+                    xml = asset as XML;
                     
-                    if (rootNode == "TextureAtlas" || rootNode == "font")
+                    if (xml.localName() == "TextureAtlas" || xml.localName() == "font")
                         xmls.push(xml);
                     else
                         addXml(name, xml);
@@ -734,32 +778,21 @@ package starling.utils
                     }
                     else if (byteArrayStartsWith(bytes, "{") || byteArrayStartsWith(bytes, "["))
                     {
-                        try
-                        {
-                            addObject(name, JSON.parse(bytes.readUTFBytes(bytes.length)));
-                            bytes.clear();
-                        }
-                        catch (e:Error)
-                        {
-                            log("Could not parse JSON: " + e.message);
-                            addByteArray(name, bytes);
-                        }
+                        try { object = JSON.parse(bytes.readUTFBytes(bytes.length)); }
+                        catch (e:Error) { log("Could not parse JSON: " + e.message); }
 
+                        if (object) addObject(name, object);
+
+                        bytes.clear();
                         onComplete();
                     }
                     else if (byteArrayStartsWith(bytes, "<"))
                     {
-                        try
-                        {
-                            process(new XML(bytes));
-                            bytes.clear();
-                        }
-                        catch (e:Error)
-                        {
-                            log("Could not parse XML: " + e.message);
-                            addByteArray(name, bytes);
-                            onComplete();
-                        }
+                        try { xml = new XML(bytes); }
+                        catch (e:Error) { log("Could not parse XML: " + e.message); }
+
+                        process(xml);
+                        bytes.clear();
                     }
                     else
                     {
@@ -834,6 +867,7 @@ package starling.utils
             function onIoError(event:IOErrorEvent):void
             {
                 log("IO error: " + event.text);
+                dispatchEventWith(Event.IO_ERROR, false, url);
                 complete(null);
             }
             

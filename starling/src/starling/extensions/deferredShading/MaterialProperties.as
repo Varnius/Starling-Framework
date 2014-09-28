@@ -3,10 +3,7 @@ package starling.extensions.deferredShading
 	import starling.textures.Texture;
 
 	public class MaterialProperties
-	{
-		public static const SPECULAR_POWER_SCALE:Number = 256.0;
-		public static const SPECULAR_INTENSITY_SCALE:Number = 50.0;
-		
+	{		
 		public static const DEFAULT_SPECULAR_POWER:Number = 10.0;
 		public static const DEFAULT_SPECULAR_INTENSITY:Number = 3.0;
 		

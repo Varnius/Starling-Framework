@@ -17,6 +17,7 @@ package starling.core
 	import flash.display.StageScaleMode;
 	import flash.display3D.Context3D;
 	import flash.display3D.Context3DCompareMode;
+	import flash.display3D.Context3DRenderMode;
 	import flash.display3D.Context3DTriangleFace;
 	import flash.display3D.Program3D;
 	import flash.errors.IllegalOperationError;
@@ -213,6 +214,8 @@ package starling.core
 		private var mNativeOverlay:flash.display.Sprite;
 		private var mNativeStageContentScaleFactor:Number;
 		
+		private var mEnableDepthAndStencil:Boolean;
+		
 		private static var sCurrent:Starling;
 		private static var sHandleLostContext:Boolean;
 		private static var sContextData:Dictionary = new Dictionary(true);
@@ -244,7 +247,8 @@ package starling.core
 		 */
 		public function Starling(rootClass:Class, stage:flash.display.Stage, 
 								 viewPort:Rectangle=null, stage3D:Stage3D=null,
-								 renderMode:String="auto", profile:Object="baselineConstrained")
+								 renderMode:String="auto", profile:Object="baselineConstrained",
+								 enableDepthAndStencil:Boolean=false)
 		{
 			if (stage == null) throw new ArgumentError("Stage must not be null");
 			if (rootClass == null) throw new ArgumentError("Root class must not be null");
@@ -272,6 +276,7 @@ package starling.core
 			mLastFrameTimestamp = getTimer() / 1000.0;
 			mSupport  = new RenderSupport();	
 			mAgalVersion = profile == 'baselineExtended' ? 2 : 1;
+			mEnableDepthAndStencil = enableDepthAndStencil;
 			
 			// for context data, we actually reference by stage3D, since it survives a context loss
 			sContextData[stage3D] = new Dictionary();
@@ -391,8 +396,19 @@ package starling.core
 			
 			function onCreated(event:Event):void
 			{
-				mProfile = currentProfile;
-				onFinished();
+				var context:Context3D = stage3D.context3D;
+				
+				if (renderMode == Context3DRenderMode.AUTO && profiles.length != 0 &&
+					context.driverInfo.indexOf("Software") != -1)
+				{
+					context.dispose(false);
+					onError(event);
+				}
+				else
+				{
+					mProfile = currentProfile;
+					onFinished();
+				}
 			}
 			
 			function onError(event:Event):void
@@ -469,7 +485,7 @@ package starling.core
 			
 			// Depth
 			
-			bd.fillRect(new Rectangle(0, 0, 4, 4), 0xFFFFFFFF);
+			bd.fillRect(new Rectangle(0, 0, 4, 4), 0xFF000000);
 			defaultDepthMap = Texture.fromBitmapData(bd, false);
 		}
 		
@@ -565,13 +581,13 @@ package starling.core
 					// set the backbuffer to a very small size first, to be on the safe side.
 					
 					if (mProfile == "baselineConstrained")
-						configureBackBuffer(32, 32, mAntiAliasing, false);
+						configureBackBuffer(32, 32, mAntiAliasing, mEnableDepthAndStencil);
 					
 					mStage3D.x = mClippedViewPort.x;
 					mStage3D.y = mClippedViewPort.y;
 					
 					configureBackBuffer(mClippedViewPort.width, mClippedViewPort.height,
-						mAntiAliasing, false, mSupportHighResolutions);
+						mAntiAliasing, mEnableDepthAndStencil, mSupportHighResolutions);
 					
 					if (mSupportHighResolutions && "contentsScaleFactor" in mNativeStage)
 						mNativeStageContentScaleFactor = mNativeStage["contentsScaleFactor"];
