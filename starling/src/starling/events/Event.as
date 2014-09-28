@@ -1,7 +1,7 @@
 // =================================================================================================
 //
 //	Starling Framework
-//	Copyright 2011 Gamua OG. All Rights Reserved.
+//	Copyright 2011-2014 Gamua. All Rights Reserved.
 //
 //	This program is free software. You can redistribute and/or modify it
 //	in accordance with the terms of the accompanying license agreement.
@@ -65,6 +65,10 @@ package starling.events
         public static const TEXTURES_RESTORED:String = "texturesRestored";
         /** Event type that is dispatched by the AssetManager when a file/url cannot be loaded. */
         public static const IO_ERROR:String = "ioError";
+        /** Event type that is dispatched by the AssetManager when a file/url cannot be loaded. */
+        public static const SECURITY_ERROR:String = "securityError";
+        /** Event type that is dispatched by the AssetManager when an xml or json file couldn't be parsed */
+        public static const PARSE_ERROR:String = "parseError";
 
         /** An event type to be utilized in custom events. Not used by Starling right now. */
         public static const CHANGE:String = "change";

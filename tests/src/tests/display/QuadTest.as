@@ -1,14 +1,14 @@
 // =================================================================================================
 //
 //	Starling Framework
-//	Copyright 2011 Gamua OG. All Rights Reserved.
+//	Copyright 2011-2014 Gamua. All Rights Reserved.
 //
 //	This program is free software. You can redistribute and/or modify it
 //	in accordance with the terms of the accompanying license agreement.
 //
 // =================================================================================================
 
-package tests
+package tests.display
 {
     import flash.geom.Rectangle;
     
@@ -18,6 +18,7 @@ package tests
     import starling.display.Quad;
     import starling.display.Sprite;
     import starling.utils.Color;
+    import tests.Helpers;
     
     use namespace starling_internal;
 

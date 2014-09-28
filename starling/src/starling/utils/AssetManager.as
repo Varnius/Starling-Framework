@@ -6,6 +6,7 @@ package starling.utils
     import flash.events.HTTPStatusEvent;
     import flash.events.IOErrorEvent;
     import flash.events.ProgressEvent;
+    import flash.events.SecurityErrorEvent;
     import flash.media.Sound;
     import flash.media.SoundChannel;
     import flash.media.SoundTransform;
@@ -38,6 +39,10 @@ package starling.utils
     /** Dispatched when an URLLoader fails with an IO_ERROR while processing the queue.
      *  The 'data' property of the Event contains the URL-String that could not be loaded. */
     [Event(name="ioError", type="starling.events.Event")]
+
+    /** Dispatched when an XML or JSON file couldn't be parsed.
+     *  The 'data' property of the Event contains the name of the asset that could not be parsed. */
+    [Event(name="parseError", type="starling.events.Event")]
 
     /** The AssetManager handles loading and accessing a variety of asset types. You can 
      *  add assets directly (via the 'add...' methods) or asynchronously via a queue. This allows
@@ -76,11 +81,13 @@ package starling.utils
         private var mStarling:Starling;
         private var mNumLostTextures:int;
         private var mNumRestoredTextures:int;
+        private var mNumLoadingQueues:int;
 
         private var mDefaultTextureOptions:TextureOptions;
         private var mCheckPolicyFile:Boolean;
         private var mKeepAtlasXmls:Boolean;
         private var mKeepFontXmls:Boolean;
+        private var mMaxConnections:int;
         private var mVerbose:Boolean;
         private var mQueue:Array;
         
@@ -108,6 +115,7 @@ package starling.utils
             mXmls = new Dictionary();
             mObjects = new Dictionary();
             mByteArrays = new Dictionary();
+            mMaxConnections = 3;
             mQueue = [];
         }
         
@@ -544,22 +552,36 @@ package starling.utils
             mStarling = Starling.current;
             
             if (mStarling == null || mStarling.context == null)
-                throw new Error("The Starling instance needs to be ready before textures can be loaded.");
-            
+                throw new Error("The Starling instance needs to be ready before assets can be loaded.");
+
+            var i:int;
+            var canceled:Boolean = false;
             var xmls:Vector.<XML> = new <XML>[];
+            var assetInfos:Array = mQueue.concat();
             var assetCount:int = mQueue.length;
             var assetProgress:Array = [];
-            var canceled:Boolean = false;
-            var i:int;
+            var assetIndex:int = 0;
             
             for (i=0; i<assetCount; ++i)
-            {
                 assetProgress[i] = 0.0;
-                setTimeout(loadQueueElement, i*5, i, mQueue[i]);
-            }
+
+            for (i=0; i<mMaxConnections; ++i)
+                loadNextQueueElement();
 
             mQueue.length = 0;
+            mNumLoadingQueues++;
             addEventListener(Event.CANCEL, cancel);
+
+            function loadNextQueueElement():void
+            {
+                if (assetIndex < assetInfos.length)
+                {
+                    // increment asset index *before* using it, since
+                    // 'loadQueueElement' could by synchronous in subclasses.
+                    var index:int = assetIndex++;
+                    loadQueueElement(index, assetInfos[index]);
+                }
+            }
 
             function loadQueueElement(index:int, assetInfo:Object):void
             {
@@ -574,9 +596,9 @@ package starling.utils
                     updateProgress(index, 1.0);
                     assetCount--;
 
-                    if (assetCount == 0)
-                        finish();
-                }
+                    if (assetCount > 0) loadNextQueueElement();
+                    else                finish();
+                };
                 
                 processRawAsset(assetInfo.name, assetInfo.asset, assetInfo.options,
                     xmls, onElementProgress, onElementLoaded);
@@ -623,11 +645,7 @@ package starling.utils
                             if (mKeepAtlasXmls) addXml(name, xml);
                             else System.disposeXML(xml);
                         }
-                        else 
-						{
-						 	mXmls[name] = xml;
-							log("Cannot create atlas: texture '" + name + "' is missing.");
-						}
+                        else log("Cannot create atlas: texture '" + name + "' is missing.");
                     }
                     else if (rootNode == "font")
                     {
@@ -652,6 +670,7 @@ package starling.utils
             function cancel():void
             {
                 removeEventListener(Event.CANCEL, cancel);
+                mNumLoadingQueues--;
                 canceled = true;
             }
 
@@ -664,11 +683,16 @@ package starling.utils
                 setTimeout(function():void
                 {
                     processXmls();
+
                     setTimeout(function():void
                     {
+                        // now would be a good time for a clean-up
+                        System.pauseForGCIfCollectionImminent(0);
+                        System.gc();
+
                         if (!canceled)
                         {
-                            removeEventListener(Event.CANCEL, cancel);
+                            cancel();
                             onProgress(1.0);
                         }
                     }, 1);
@@ -779,7 +803,11 @@ package starling.utils
                     else if (byteArrayStartsWith(bytes, "{") || byteArrayStartsWith(bytes, "["))
                     {
                         try { object = JSON.parse(bytes.readUTFBytes(bytes.length)); }
-                        catch (e:Error) { log("Could not parse JSON: " + e.message); }
+                        catch (e:Error)
+                        {
+                            log("Could not parse JSON: " + e.message);
+                            dispatchEventWith(Event.PARSE_ERROR, false, name);
+                        }
 
                         if (object) addObject(name, object);
 
@@ -789,7 +817,11 @@ package starling.utils
                     else if (byteArrayStartsWith(bytes, "<"))
                     {
                         try { xml = new XML(bytes); }
-                        catch (e:Error) { log("Could not parse XML: " + e.message); }
+                        catch (e:Error)
+                        {
+                            log("Could not parse XML: " + e.message);
+                            dispatchEventWith(Event.PARSE_ERROR, false, name);
+                        }
 
                         process(xml);
                         bytes.clear();
@@ -858,6 +890,7 @@ package starling.utils
                 urlLoader = new URLLoader();
                 urlLoader.dataFormat = URLLoaderDataFormat.BINARY;
                 urlLoader.addEventListener(IOErrorEvent.IO_ERROR, onIoError);
+                urlLoader.addEventListener(SecurityErrorEvent.SECURITY_ERROR, onSecurityError);
                 urlLoader.addEventListener(HTTP_RESPONSE_STATUS, onHttpResponseStatus);
                 urlLoader.addEventListener(ProgressEvent.PROGRESS, onLoadProgress);
                 urlLoader.addEventListener(Event.COMPLETE, onUrlLoaderComplete);
@@ -870,7 +903,14 @@ package starling.utils
                 dispatchEventWith(Event.IO_ERROR, false, url);
                 complete(null);
             }
-            
+
+            function onSecurityError(event:SecurityErrorEvent):void
+            {
+                log("security error: " + event.text);
+                dispatchEventWith(Event.SECURITY_ERROR, false, url);
+                complete(null);
+            }
+
             function onHttpResponseStatus(event:HTTPStatusEvent):void
             {
                 if (extension == null)
@@ -885,7 +925,7 @@ package starling.utils
 
             function onLoadProgress(event:ProgressEvent):void
             {
-                if (onProgress != null)
+                if (onProgress != null && event.bytesTotal > 0)
                     onProgress(event.bytesLoaded / event.bytesTotal);
             }
             
@@ -937,6 +977,7 @@ package starling.utils
                 if (urlLoader)
                 {
                     urlLoader.removeEventListener(IOErrorEvent.IO_ERROR, onIoError);
+                    urlLoader.removeEventListener(SecurityErrorEvent.SECURITY_ERROR, onSecurityError);
                     urlLoader.removeEventListener(HTTP_RESPONSE_STATUS, onHttpResponseStatus);
                     urlLoader.removeEventListener(ProgressEvent.PROGRESS, onLoadProgress);
                     urlLoader.removeEventListener(Event.COMPLETE, onUrlLoaderComplete);
@@ -1102,6 +1143,9 @@ package starling.utils
         public function get verbose():Boolean { return mVerbose; }
         public function set verbose(value:Boolean):void { mVerbose = value; }
         
+        /** Indicates if a queue is currently being loaded. */
+        public function get isLoading():Boolean { return mNumLoadingQueues > 0; }
+
         /** For bitmap textures, this flag indicates if mip maps should be generated when they 
          *  are loaded; for ATF textures, it indicates if mip maps are valid and should be
          *  used. @default false */
@@ -1135,5 +1179,10 @@ package starling.utils
          *  If false, XMLs will be disposed when the font was created. @default false. */
         public function get keepFontXmls():Boolean { return mKeepFontXmls; }
         public function set keepFontXmls(value:Boolean):void { mKeepFontXmls = value; }
+
+        /** The maximum number of parallel connections that are spawned when loading the queue.
+         *  More connections can reduce loading times, but require more memory. @default 3. */
+        public function get maxConnections():int { return mMaxConnections; }
+        public function set maxConnections(value:int):void { mMaxConnections = value; }
     }
 }

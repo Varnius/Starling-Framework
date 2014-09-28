@@ -1,7 +1,7 @@
 // =================================================================================================
 //
 //	Starling Framework
-//	Copyright 2011 Gamua OG. All Rights Reserved.
+//	Copyright 2011-2014 Gamua. All Rights Reserved.
 //
 //	This program is free software. You can redistribute and/or modify it
 //	in accordance with the terms of the accompanying license agreement.
@@ -21,7 +21,7 @@ package tests
     import org.flexunit.asserts.assertEquals;
     import org.hamcrest.number.closeTo;
 
-    internal class Helpers
+    public class Helpers
     {
         public static function compareRectangles(rect1:Rectangle, rect2:Rectangle, 
                                                  e:Number=0.0001):void
