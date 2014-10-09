@@ -215,7 +215,7 @@ package starling.filters
             if (sBounds.isEmpty())
             {
                 disposePassTextures();
-                return intoCache ? new QuadBatch() : null; 
+                return intoCache ? Starling.current.createQuadBatch() : null; 
             }
             
             updateBuffers(context, sBoundsPot);
@@ -312,7 +312,7 @@ package starling.filters
                 // the filter output in object coordinates, we wrap it in a QuadBatch: that way,
                 // we can modify it with a transformation matrix.
                 
-                var quadBatch:QuadBatch = new QuadBatch();
+                var quadBatch:QuadBatch = Starling.current.createQuadBatch();
                 var image:Image = new Image(cacheTexture);
                 
                 stage.getTransformationMatrix(object, sTransformationMatrix);

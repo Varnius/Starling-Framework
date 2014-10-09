@@ -396,7 +396,7 @@ package starling.text
             
             if (mQuadBatch == null) 
             { 
-                mQuadBatch = new QuadBatch(); 
+                mQuadBatch = Starling.current.createQuadBatch(); 
                 mQuadBatch.touchable = false;
                 addChild(mQuadBatch); 
             }

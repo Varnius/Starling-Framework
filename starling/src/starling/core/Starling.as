@@ -10,7 +10,6 @@
 
 package starling.core
 {
-	import flash.display.BitmapData;
 	import flash.display.Sprite;
 	import flash.display.Stage3D;
 	import flash.display.StageAlign;
@@ -42,12 +41,12 @@ package starling.core
 	
 	import starling.animation.Juggler;
 	import starling.display.DisplayObject;
+	import starling.display.QuadBatch;
 	import starling.display.Stage;
 	import starling.events.EventDispatcher;
 	import starling.events.ResizeEvent;
 	import starling.events.TouchPhase;
 	import starling.events.TouchProcessor;
-	import starling.textures.Texture;
 	import starling.utils.HAlign;
 	import starling.utils.SystemUtil;
 	import starling.utils.VAlign;
@@ -201,20 +200,18 @@ package starling.core
 		private var mStatsDisplay:StatsDisplay;
 		private var mShareContext:Boolean;
 		private var mProfile:String;
-		private var mSupportHighResolutions:Boolean;
 		private var mContext:Context3D;
 		private var mStarted:Boolean;
 		private var mRendering:Boolean;
+		private var mSupportHighResolutions:Boolean;
 		
 		private var mViewPort:Rectangle;
 		private var mPreviousViewPort:Rectangle;
 		private var mClippedViewPort:Rectangle;
+		private var mViewPortScaleFactor:Number;
 		
 		private var mNativeStage:flash.display.Stage;
 		private var mNativeOverlay:flash.display.Sprite;
-		private var mNativeStageContentScaleFactor:Number;
-		
-		private var mEnableDepthAndStencil:Boolean;
 		
 		private static var sCurrent:Starling;
 		private static var sHandleLostContext:Boolean;
@@ -248,7 +245,7 @@ package starling.core
 		public function Starling(rootClass:Class, stage:flash.display.Stage, 
 								 viewPort:Rectangle=null, stage3D:Stage3D=null,
 								 renderMode:String="auto", profile:Object="baselineConstrained",
-								 enableDepthAndStencil:Boolean=false)
+								 quadBatchClass:Class = null)
 		{
 			if (stage == null) throw new ArgumentError("Stage must not be null");
 			if (rootClass == null) throw new ArgumentError("Root class must not be null");
@@ -256,6 +253,7 @@ package starling.core
 			if (stage3D == null) stage3D = stage.stage3Ds[0];
 			
 			SystemUtil.initialize();
+			sAll.push(this);
 			makeCurrent();
 			
 			mRootClass = rootClass;
@@ -266,7 +264,7 @@ package starling.core
 			mNativeOverlay = new Sprite();
 			mNativeStage = stage;
 			mNativeStage.addChild(mNativeOverlay);
-			mNativeStageContentScaleFactor = 1.0;
+			mViewPortScaleFactor = 1.0;
 			mTouchProcessor = new TouchProcessor(mStage);
 			mJuggler = new Juggler();
 			mAntiAliasing = 0;
@@ -274,15 +272,12 @@ package starling.core
 			mEnableErrorChecking = false;
 			mSupportHighResolutions = false;
 			mLastFrameTimestamp = getTimer() / 1000.0;
-			mSupport  = new RenderSupport();	
-			mAgalVersion = profile == 'baselineExtended' ? 2 : 1;
-			mEnableDepthAndStencil = enableDepthAndStencil;
+			mQuadBatchClass = quadBatchClass ? quadBatchClass : QuadBatch;
+			mSupport  = new RenderSupport();
 			
 			// for context data, we actually reference by stage3D, since it survives a context loss
 			sContextData[stage3D] = new Dictionary();
 			sContextData[stage3D][PROGRAM_DATA_NAME] = new Dictionary();
-			
-			sAll.push(this);
 			
 			// all other modes are problematic in Starling, so we force those here
 			stage.scaleMode = StageScaleMode.NO_SCALE;
@@ -309,7 +304,7 @@ package starling.core
 						"the actual profile has to be supplied");
 				else
 					mProfile = "profile" in mStage3D.context3D ? mStage3D.context3D["profile"] :
-					                                             profile as String;
+						profile as String;
 				
 				mShareContext = true;
 				setTimeout(initialize, 1); // we don't call it right away, because Starling should
@@ -349,16 +344,11 @@ package starling.core
 			{
 				// Per default, the context is recreated as long as there are listeners on it.
 				// Beginning with AIR 3.6, we can avoid that with an additional parameter.
-				
 				execute(mContext.dispose, false);
 			}
 			
-			var index:int = sAll.indexOf(this);
-			
-			if(index != -1)
-			{
-				sAll.splice(index, 1);
-			}
+			var index:int =  sAll.indexOf(this);
+			if (index != -1) sAll.splice(index, 1);
 		}
 		
 		// functions
@@ -433,7 +423,6 @@ package starling.core
 			
 			initializeGraphicsAPI();
 			initializeRoot();
-			initializeDefaultMaps();
 			
 			mTouchProcessor.simulateMultitouch = mSimulateMultitouch;
 			mLastFrameTimestamp = getTimer() / 1000.0;
@@ -449,7 +438,6 @@ package starling.core
 			trace("[Starling] Display Driver:", mContext.driverInfo);
 			
 			updateViewPort(true);
-			
 			dispatchEventWith(Event.CONTEXT3D_CREATE, false, mContext);
 		}
 		
@@ -463,29 +451,6 @@ package starling.core
 				
 				dispatchEventWith(starling.events.Event.ROOT_CREATED, false, mRoot);
 			}
-		}
-		
-		public var defaultNormalMap:Texture;
-		public var defaultDepthMap:Texture;		
-		public var defaultSpecularMap:Texture;
-		
-		private function initializeDefaultMaps():void
-		{
-			// Normal
-			
-			var bd:BitmapData = new BitmapData(4, 4);
-			bd.fillRect(new Rectangle(0, 0, 4, 4), 0xFF8080FF);
-			defaultNormalMap = Texture.fromBitmapData(bd, false);
-			
-			// Specular
-			
-			bd.fillRect(new Rectangle(0, 0, 4, 4), 0xFFFFFFFF);
-			defaultSpecularMap = Texture.fromBitmapData(bd, false);
-			
-			// Depth
-			
-			bd.fillRect(new Rectangle(0, 0, 4, 4), 0xFF000000);
-			defaultDepthMap = Texture.fromBitmapData(bd, false);
 		}
 		
 		/** Calls <code>advanceTime()</code> (with the time that has passed since the last frame)
@@ -580,18 +545,18 @@ package starling.core
 					// set the backbuffer to a very small size first, to be on the safe side.
 					
 					if (mProfile == "baselineConstrained")
-						configureBackBuffer(32, 32, mAntiAliasing, mEnableDepthAndStencil);
+						configureBackBuffer(32, 32, mAntiAliasing, false);
 					
 					mStage3D.x = mClippedViewPort.x;
 					mStage3D.y = mClippedViewPort.y;
 					
 					configureBackBuffer(mClippedViewPort.width, mClippedViewPort.height,
-						mAntiAliasing, mEnableDepthAndStencil, mSupportHighResolutions);
+						mAntiAliasing, false, mSupportHighResolutions);
 					
 					if (mSupportHighResolutions && "contentsScaleFactor" in mNativeStage)
-						mNativeStageContentScaleFactor = mNativeStage["contentsScaleFactor"];
+						mViewPortScaleFactor = mNativeStage["contentsScaleFactor"];
 					else
-						mNativeStageContentScaleFactor = 1.0;
+						mViewPortScaleFactor = 1.0;
 				}
 			}
 		}
@@ -626,7 +591,7 @@ package starling.core
 			textField.width = mStage.stageWidth * 0.75;
 			textField.autoSize = TextFieldAutoSize.CENTER;
 			textField.text = message;
-			textField.x = (mStage.stageWidth - textField.width) / 2;
+			textField.x = (mStage.stageWidth  - textField.width)  / 2;
 			textField.y = (mStage.stageHeight - textField.height) / 2;
 			textField.background = true;
 			textField.backgroundColor = 0x440000;
@@ -697,7 +662,7 @@ package starling.core
 		}
 		
 		private function onEnterFrame(event:Event):void
-		{			
+		{
 			// On mobile, the native display list is only updated on stage3D draw calls. 
 			// Thus, we render even when Starling is paused.
 			
@@ -851,11 +816,11 @@ package starling.core
 		/** Compiles a shader-program and registers it under a certain name.
 		 *  If the name was already used, the previous program is overwritten. */
 		public function registerProgramFromSource(name:String, vertexShader:String,
-												  fragmentShader:String, agalVersion:int=1):Program3D
+												  fragmentShader:String):Program3D
 		{
 			deleteProgram(name);
 			
-			var program:Program3D = RenderSupport.assembleAgal(vertexShader, fragmentShader, null, agalVersion);
+			var program:Program3D = RenderSupport.assembleAgal(vertexShader, fragmentShader);
 			programs[name] = program;
 			
 			return program;
@@ -907,13 +872,39 @@ package starling.core
 			return sContextData[mStage3D] as Dictionary;
 		}
 		
-		/** Returns the actual width (in pixels) of the back buffer. This can differ from the
-		 *  width of the viewPort rectangle if it is partly outside the native stage. */
-		public function get backBufferWidth():int { return mClippedViewPort.width; }
+		/** Returns the actual width (in pixels) of the back buffer. */
+		public function get backBufferWidth():int
+		{
+			return mClippedViewPort.width * mViewPortScaleFactor;
+		}
 		
-		/** Returns the actual height (in pixels) of the back buffer. This can differ from the
-		 *  height of the viewPort rectangle if it is partly outside the native stage. */
-		public function get backBufferHeight():int { return mClippedViewPort.height; }
+		/** Returns the actual height (in pixels) of the back buffer. */
+		public function get backBufferHeight():int
+		{
+			return mClippedViewPort.height * mViewPortScaleFactor;
+		}
+		
+		/** Returns the width of the visible part of the viewPort. This can differ from the
+		 *  width of the 'viewPort' rectangle if it is partly outside the native stage.
+		 *
+		 *  <p>The returned number is not always in pixel units: HiDPI-displays with an activated
+		 *  'supportHighResolutions' setting will return the size in points. For actual pixel
+		 *  values, call 'backBufferWidth' instead. */
+		public function get viewPortWidth():Number
+		{
+			return mClippedViewPort.width;
+		}
+		
+		/** Returns the height of the visible part of the viewPort. This can differ from the
+		 *  height of the 'viewPort' rectangle if it is partly outside the native stage.
+		 *
+		 *  <p>The returned number is not always in pixel units: HiDPI-displays with an activated
+		 *  'supportHighResolutions' setting will return the size in points. For actual pixel
+		 *  values, call 'backBufferHeight' instead. */
+		public function get viewPortHeight():Number
+		{
+			return mClippedViewPort.height;
+		}
 		
 		/** Indicates if multitouch simulation with "Shift" and "Ctrl"/"Cmd"-keys is enabled. 
 		 *  @default false */
@@ -952,7 +943,7 @@ package starling.core
 		 *  set of textures depending on the display resolution. */
 		public function get contentScaleFactor():Number
 		{
-			return (mViewPort.width * mNativeStageContentScaleFactor) / mStage.stageWidth;
+			return (mViewPort.width * mViewPortScaleFactor) / mStage.stageWidth;
 		}
 		
 		/** A Flash Sprite placed directly on top of the Starling content. Use it to display native
@@ -1029,8 +1020,9 @@ package starling.core
 		public function get shareContext() : Boolean { return mShareContext; }
 		public function set shareContext(value : Boolean) : void { mShareContext = value; }
 		
-		/** The Context3D profile as requested in the constructor. Beware that if you are 
-		 *  using a shared context, this is simply what you passed to the Starling constructor. */
+		/** The Context3D profile used for rendering. Beware that if you are using a shared
+		 *  context in AIR 3.9 / Flash Player 11 or below, this is simply what you passed to
+		 *  the Starling constructor. */
 		public function get profile():String { return mProfile; }
 		
 		/** Indicates that if the device supports HiDPI screens Starling will attempt to allocate
@@ -1072,6 +1064,9 @@ package starling.core
 		
 		/** The currently active Starling instance. */
 		public static function get current():Starling { return sCurrent; }
+		
+		/** All Starling instances. <p>CAUTION: not a copy, but the actual object! Do not modify!</p> */
+		public static function get all():Vector.<Starling> { return sAll; }
 		
 		/** The render context of the currently active Starling instance. */
 		public static function get context():Context3D { return sCurrent ? sCurrent.context : null; }
@@ -1115,26 +1110,13 @@ package starling.core
 				sHandleLostContext = value;
 		}
 		
-		/** All Starling instances. <p>CAUTION: not a copy, but the actual object! Do not modify!</p> */
-		public static function get all():Vector.<Starling>
-		{
-			return sAll;
-		}
+		// Deferred renderer additions
 		
-		private var mAgalVersion:int = 1;
+		private var mQuadBatchClass:Class;
 		
-		/**
-		 * AGAL version. 1 is default, 2 can be only used with BASELINE_EXTENDED profile. Version 2 adds support for
-		 * multiple render targets, increased shader opcocde count, also allows use shader conditionals and more.
-		 */
-		public function get agalVersion():int
+		public function createQuadBatch():QuadBatch
 		{
-			return mAgalVersion;
-		}
-		
-		public function get renderSupport():RenderSupport 
-		{
-			return mSupport;
+			return new mQuadBatchClass();
 		}
 	}
 }
