@@ -13,8 +13,11 @@ package starling.core
     import com.adobe.utils.AGALMiniAssembler;
     
     import flash.display3D.Context3D;
+    import flash.display3D.Context3DCompareMode;
     import flash.display3D.Context3DProgramType;
+    import flash.display3D.Context3DStencilAction;
     import flash.display3D.Context3DTextureFormat;
+    import flash.display3D.Context3DTriangleFace;
     import flash.display3D.Program3D;
     import flash.geom.Matrix;
     import flash.geom.Matrix3D;
@@ -26,7 +29,6 @@ package starling.core
     import starling.display.DisplayObject;
     import starling.display.Quad;
     import starling.display.QuadBatch;
-    import starling.display.Sprite3D;
     import starling.display.Stage;
     import starling.errors.MissingContextError;
     import starling.textures.Texture;
@@ -34,6 +36,7 @@ package starling.core
     import starling.utils.Color;
     import starling.utils.MatrixUtil;
     import starling.utils.RectangleUtil;
+    import starling.utils.SystemUtil;
 
     /** A class that contains helper methods simplifying Stage3D rendering.
      *
@@ -68,7 +71,7 @@ package starling.core
         
         private var mQuadBatches:Vector.<QuadBatch>;
         private var mCurrentQuadBatchID:int;
-        
+
         /** helper objects */
         private static var sPoint:Point = new Point();
         private static var sPoint3D:Vector3D = new Vector3D();
@@ -103,8 +106,8 @@ package starling.core
             mClipRectStack = new <Rectangle>[];
             
             mCurrentQuadBatchID = 0;
-            mQuadBatches = new <QuadBatch>[Starling.current.createQuadBatch()];
-            
+			mQuadBatches = new <QuadBatch>[Starling.current.createQuadBatch()];
+
             loadIdentity();
             setProjectionMatrix(0, 0, 400, 300);
         }
@@ -279,7 +282,7 @@ package starling.core
         /** Prepends translation, scale and rotation of an object to the 3D modelview matrix.
          *  The current contents of the 2D modelview matrix is stored in the 3D modelview matrix
          *  before doing so; the 2D modelview matrix is then reset to the identity matrix. */
-        public function transformMatrix3D(object:Sprite3D):void
+        public function transformMatrix3D(object:DisplayObject):void
         {
             mModelViewMatrix3D.prepend(MatrixUtil.convertTo3D(mModelViewMatrix, sMatrix3D));
             mModelViewMatrix3D.prepend(object.transformationMatrix3D);
@@ -363,10 +366,14 @@ package starling.core
         {
             mRenderTarget = target;
             applyClipRect();
-            
-            if (target) Starling.context.setRenderToTexture(target.base, false, antiAliasing);
-            else        Starling.context.setRenderToBackBuffer();
+
+            if (target)
+                Starling.context.setRenderToTexture(target.base,
+                        SystemUtil.supportsDepthAndStencil, antiAliasing);
+            else
+                Starling.context.setRenderToBackBuffer();
         }
+		
 		
 		private var mRenderTargets:Vector.<Texture>;
 		
@@ -463,8 +470,8 @@ package starling.core
                 }
                 else
                 {
-                    width  = Starling.current.viewPortWidth;
-                    height = Starling.current.viewPortHeight;
+                    width  = Starling.current.backBufferWidth;
+                    height = Starling.current.backBufferHeight;
                 }
                 
                 // convert to pixel coordinates (matrix transformation ends up in range [-1, 1])
@@ -490,7 +497,63 @@ package starling.core
                 context.setScissorRectangle(null);
             }
         }
-        
+
+        // stencil masks
+
+        private var mMasks:Vector.<DisplayObject> = new <DisplayObject>[];
+
+        public function pushMask(mask:DisplayObject):void
+        {
+            mMasks[mMasks.length] = mask;
+
+            var context:Context3D = Starling.context;
+            if (context == null) return;
+
+            finishQuadBatch();
+
+            context.setStencilActions(Context3DTriangleFace.FRONT_AND_BACK,
+                    Context3DCompareMode.EQUAL, Context3DStencilAction.INCREMENT_SATURATE);
+
+            drawMask(mask);
+
+            context.setStencilReferenceValue(mMasks.length);
+            context.setStencilActions(Context3DTriangleFace.FRONT_AND_BACK,
+                    Context3DCompareMode.EQUAL, Context3DStencilAction.KEEP);
+        }
+
+        public function popMask():void
+        {
+            var mask:DisplayObject = mMasks.pop();
+
+            var context:Context3D = Starling.context;
+            if (context == null) return;
+
+            finishQuadBatch();
+
+            context.setStencilActions(Context3DTriangleFace.FRONT_AND_BACK,
+                    Context3DCompareMode.EQUAL, Context3DStencilAction.DECREMENT_SATURATE);
+
+            drawMask(mask);
+
+            context.setStencilReferenceValue(mMasks.length);
+            context.setStencilActions(Context3DTriangleFace.FRONT_AND_BACK,
+                    Context3DCompareMode.EQUAL, Context3DStencilAction.KEEP);
+        }
+
+        private function drawMask(mask:DisplayObject):void
+        {
+            pushMatrix();
+
+            var stage:Stage = mask.stage;
+            if (stage) mask.getTransformationMatrix(stage, mModelViewMatrix);
+            else       transformMatrix(mask);
+
+            mask.render(this, 0.0);
+            finishQuadBatch();
+
+            popMatrix();
+        }
+
         // optimized quad rendering
         
         /** Adds a quad to the current batch of unrendered quads. If there is a state change,
@@ -559,7 +622,8 @@ package starling.core
         {
             resetMatrix();
             trimQuadBatches();
-            
+
+            mMasks.length = 0;
             mCurrentQuadBatchID = 0;
             mBlendMode = BlendMode.NORMAL;
             mDrawCount = 0;

@@ -13,21 +13,24 @@ bin-debug/
 bin-release/
 starling/doc/html/
 tests/libs/
+out/
 
-# Project property files
+# Eclipse / Flash Builder
 .settings/
 .flexProperties
 .FlexUnitSettings
+.actionScriptProperties
 
 # IntelliJ IDEA
-.idea/
-*.iml
-*.ipr
 *.iws
+**/.idea/workspace.xml
+**/.idea/tasks.xml
+**/.idea/dictionaries
 
 # Gradle CI
 .gradle/
 build/
+!starling/build/
 
 # Maven CI
 target/
@@ -38,4 +41,3 @@ target/
 # FlashBuilder auto generated test runners
 FlexUnitApplication.as
 FlexUnitCompilerApplication.as
-.actionScriptProperties

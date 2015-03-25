@@ -90,7 +90,6 @@ package starling.display
         /** Helper objects. */
         private static var sHelperMatrix:Matrix = new Matrix();
         private static var sRenderAlpha:Vector.<Number> = new <Number>[1.0, 1.0, 1.0, 1.0];
-        private static var sRenderMatrix:Matrix3D = new Matrix3D();
         private static var sProgramNameCache:Dictionary = new Dictionary();
         
         /** Creates a new QuadBatch instance with empty batch data. */
@@ -308,7 +307,7 @@ package starling.display
             mSyncRequired = true;
             mNumQuads++;
         }
-        
+
         /** Adds another QuadBatch to this batch. Just like the 'addQuad' method, you have to
          *  make sure that you only add batches with an equal state. */
         public function addQuadBatch(quadBatch:QuadBatch, parentAlpha:Number=1.0, 
@@ -426,7 +425,20 @@ package starling.display
             
             mSyncRequired = true;
         }
-        
+
+        /** Replaces a quad or image at a certain index with another one. */
+        public function setQuad(quadID:Number, quad:Quad):void
+        {
+            var matrix:Matrix = quad.transformationMatrix;
+            var alpha:Number  = quad.alpha;
+            var vertexID:int  = quadID * 4;
+
+            quad.copyVertexDataTransformedTo(mVertexData, vertexID, matrix);
+            if (alpha != 1.0) mVertexData.scaleAlpha(vertexID, alpha, 4);
+
+            mSyncRequired = true;
+        }
+
         /** Calculates the bounds of a specific quad, optionally transformed by a matrix.
          *  If you pass a 'resultRect', the result will be stored in this rectangle
          *  instead of creating a new object. */
@@ -477,6 +489,30 @@ package starling.display
             compileObject(object, quadBatches, -1, new Matrix());
         }
         
+        /** Naively optimizes a list of batches by merging all that have an identical state.
+         *  Naturally, this will change the z-order of some of the batches, so this method is
+         *  useful only for specific use-cases. */
+        public static function optimize(quadBatches:Vector.<QuadBatch>):void
+        {
+            var batch1:QuadBatch, batch2:QuadBatch;
+            for (var i:int=0; i<quadBatches.length; ++i)
+            {
+                batch1 = quadBatches[i];
+                for (var j:int=i+1; j<quadBatches.length; )
+                {
+                    batch2 = quadBatches[j];
+                    if (!batch1.isStateChange(batch2.tinted, 1.0, batch2.texture,
+                                              batch2.smoothing, batch2.blendMode))
+                    {
+                        batch1.addQuadBatch(batch2);
+                        batch2.dispose();
+                        quadBatches.splice(j, 1);
+                    }
+                    else ++j;
+                }
+            }
+        }
+
         private static function compileObject(object:DisplayObject, 
                                               quadBatches:Vector.<QuadBatch>,
                                               quadBatchID:int,
@@ -497,7 +533,7 @@ package starling.display
             var quad:Quad = object as Quad;
             var batch:QuadBatch = object as QuadBatch;
             var filter:FragmentFilter = object.filter;
-            
+
             if (quadBatchID == -1)
             {
                 isRootObject = true;
@@ -507,6 +543,14 @@ package starling.display
                 ignoreCurrentFilter = true;
                 if (quadBatches.length == 0) quadBatches.push(Starling.current.createQuadBatch());
                 else quadBatches[0].reset();
+            }
+            else
+            {
+                if (object.mask)
+                    trace("[Starling] Masks are ignored on children of a flattened sprite.");
+
+                if ((object is Sprite) && (object as Sprite).clipRect)
+                    trace("[Starling] ClipRects are ignored on children of a flattened sprite.");
             }
             
             if (filter && !ignoreCurrentFilter)

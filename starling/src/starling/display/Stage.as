@@ -113,11 +113,11 @@ package starling.display
          *  (or higher). BASELINE_CONSTRAINED might not support transparency on all platforms.
          *  </p>
          *
-         *  @param destination: If you pass null, the object will be created for you.
+         *  @param destination  If you pass null, the object will be created for you.
          *                      If you pass a BitmapData object, it should have the size of the
          *                      back buffer (which is accessible via the respective properties
          *                      on the Starling instance).
-         *  @param transparent: If enabled, empty areas will appear transparent; otherwise, they
+         *  @param transparent  If enabled, empty areas will appear transparent; otherwise, they
          *                      will be filled with the stage color.
          */
         public function drawToBitmapData(destination:BitmapData=null,
@@ -125,9 +125,13 @@ package starling.display
         {
             var support:RenderSupport = new RenderSupport();
             var star:Starling = Starling.current;
-            
+
             if (destination == null)
-                destination = new BitmapData(star.backBufferWidth, star.backBufferHeight, transparent);
+            {
+                var width:int  = star.backBufferWidth  * star.backBufferPixelsPerPoint;
+                var height:int = star.backBufferHeight * star.backBufferPixelsPerPoint;
+                destination = new BitmapData(width, height, transparent);
+            }
             
             support.renderTarget = null;
             support.setProjectionMatrix(0, 0, mWidth, mHeight, mWidth, mHeight, cameraPosition);
@@ -137,6 +141,7 @@ package starling.display
             
             render(support, 1.0);
             support.finishQuadBatch();
+            support.dispose();
             
             Starling.current.context.drawToBitmapData(destination);
             Starling.current.context.present(); // required on some platforms to avoid flickering

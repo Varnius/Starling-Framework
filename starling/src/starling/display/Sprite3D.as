@@ -38,6 +38,7 @@ package starling.display
      *    <li>rotationX — Rotates the sprite around the x-axis.</li>
      *    <li>rotationY — Rotates the sprite around the y-axis.</li>
      *    <li>scaleZ - Scales the sprite along the z-axis.</li>
+     *    <li>pivotZ - Moves the pivot point along the z-axis.</li>
      *  </ul>
      *
      *  <p>With the help of these properties, you can move a sprite and all its children in the
@@ -49,22 +50,28 @@ package starling.display
      *
      *  <p><strong>Setting up the camera</strong></p>
      *
-     *  <p>The position and settings of the camera are found directly on the stage.
-     *  Modify the 'focalLength' to define the distance between stage and camera, or set up the
-     *  'fieldOfView' directly.</p>
+     *  <p>The camera settings are found directly on the stage. Modify the 'focalLength' or
+     *  'fieldOfView' properties to change the distance between stage and camera; use the
+     *  'projectionOffset' to move it to a different position.</p>
      *
      *  <p><strong>Limitations</strong></p>
      *
      *  <p>A Sprite3D object cannot be flattened (although you can flatten objects <em>within</em>
-     *  a Sprite3D), and it does not work with the "clipRect" property. On rendering, each
-     *  Sprite3D requires its own draw call.</p>
+     *  a Sprite3D), and it does not work with the "clipRect" property. Furthermore, a filter
+     *  applied to a Sprite3D object cannot be cached.</p>
+     *
+     *  <p>On rendering, each Sprite3D requires its own draw call — except if the object does not
+     *  contain any 3D transformations ('z', 'rotationX/Y' and 'pivotZ' are zero).</p>
      *
      */
     public class Sprite3D extends DisplayObjectContainer
     {
+        private static const E:Number = 0.00001;
+
         private var mRotationX:Number;
         private var mRotationY:Number;
         private var mScaleZ:Number;
+        private var mPivotZ:Number;
         private var mZ:Number;
 
         private var mTransformationMatrix:Matrix;
@@ -80,7 +87,7 @@ package starling.display
         public function Sprite3D()
         {
             mScaleZ = 1.0;
-            mRotationX = mRotationY = mZ = 0.0;
+            mRotationX = mRotationY = mPivotZ = mZ = 0.0;
             mTransformationMatrix = new Matrix();
             mTransformationMatrix3D = new Matrix3D();
             setIs3D(true);
@@ -92,33 +99,41 @@ package starling.display
         /** @inheritDoc */
         public override function render(support:RenderSupport, parentAlpha:Number):void
         {
-            support.finishQuadBatch();
-            support.pushMatrix3D();
-            support.transformMatrix3D(this);
+            if (is2D) super.render(support, parentAlpha);
+            else
+            {
+                support.finishQuadBatch();
+                support.pushMatrix3D();
+                support.transformMatrix3D(this);
 
-            super.render(support, parentAlpha);
+                super.render(support, parentAlpha);
 
-            support.finishQuadBatch();
-            support.popMatrix3D();
+                support.finishQuadBatch();
+                support.popMatrix3D();
+            }
         }
 
         /** @inheritDoc */
         public override function hitTest(localPoint:Point, forTouch:Boolean=false):DisplayObject
         {
-            if (forTouch && (!visible || !touchable))
-                return null;
+            if (is2D) return super.hitTest(localPoint, forTouch);
+            else
+            {
+                if (forTouch && (!visible || !touchable))
+                    return null;
 
-            // We calculate the interception point between the 3D plane that is spawned up
-            // by this sprite3D and the straight line between the camera and the hit point.
+                // We calculate the interception point between the 3D plane that is spawned up
+                // by this sprite3D and the straight line between the camera and the hit point.
 
-            sHelperMatrix.copyFrom(transformationMatrix3D);
-            sHelperMatrix.invert();
+                sHelperMatrix.copyFrom(transformationMatrix3D);
+                sHelperMatrix.invert();
 
-            stage.getCameraPosition(this, sHelperPoint);
-            MatrixUtil.transformCoords3D(sHelperMatrix, localPoint.x, localPoint.y, 0, sHelperPointAlt);
-            MathUtil.intersectLineWithXYPlane(sHelperPoint, sHelperPointAlt, localPoint);
+                stage.getCameraPosition(this, sHelperPoint);
+                MatrixUtil.transformCoords3D(sHelperMatrix, localPoint.x, localPoint.y, 0, sHelperPointAlt);
+                MathUtil.intersectLineWithXYPlane(sHelperPoint, sHelperPointAlt, localPoint);
 
-            return super.hitTest(localPoint, forTouch);
+                return super.hitTest(localPoint, forTouch);
+            }
         }
 
         // helpers
@@ -150,20 +165,65 @@ package starling.display
             object.setIs3D(value);
         }
 
+        private function updateMatrices():void
+        {
+            var x:Number = this.x;
+            var y:Number = this.y;
+            var scaleX:Number = this.scaleX;
+            var scaleY:Number = this.scaleY;
+            var pivotX:Number = this.pivotX;
+            var pivotY:Number = this.pivotY;
+            var rotationZ:Number = this.rotation;
+
+            mTransformationMatrix3D.identity();
+
+            if (scaleX != 1.0 || scaleY != 1.0 || mScaleZ != 1.0)
+                mTransformationMatrix3D.appendScale(scaleX || E , scaleY || E, mScaleZ || E);
+            if (mRotationX != 0.0)
+                mTransformationMatrix3D.appendRotation(rad2deg(mRotationX), Vector3D.X_AXIS);
+            if (mRotationY != 0.0)
+                mTransformationMatrix3D.appendRotation(rad2deg(mRotationY), Vector3D.Y_AXIS);
+            if (rotationZ != 0.0)
+                mTransformationMatrix3D.appendRotation(rad2deg( rotationZ), Vector3D.Z_AXIS);
+            if (x != 0.0 || y != 0.0 || mZ != 0.0)
+                mTransformationMatrix3D.appendTranslation(x, y, mZ);
+            if (pivotX != 0.0 || pivotY != 0.0 || mPivotZ != 0.0)
+                mTransformationMatrix3D.prependTranslation(-pivotX, -pivotY, -mPivotZ);
+
+            if (is2D) MatrixUtil.convertTo2D(mTransformationMatrix3D, mTransformationMatrix);
+            else      mTransformationMatrix.identity();
+        }
+
+        /** Indicates if the object can be represented by a 2D transformation. */
+        [Inline]
+        private final function get is2D():Boolean
+        {
+            return mZ > -E && mZ < E &&
+                mRotationX > -E && mRotationX < E &&
+                mRotationY > -E && mRotationY < E &&
+                mPivotZ > -E && mPivotZ < E;
+        }
+
         // properties
 
-        /** Always returns the identity matrix. The actual transformation of a Sprite3D is stored
-         *  in 'transformationMatrix3D' (a 2D matrix cannot represent 3D transformations).
-         *  If you assign a 2D transformation matrix, it will be converted to 3D and stored as
-         *  3D transformation matrix. */
+        /** The 2D transformation matrix of the object relative to its parent — if it can be
+         *  represented in such a matrix (the values of 'z', 'rotationX/Y', and 'pivotZ' are
+         *  zero). Otherwise, the identity matrix. CAUTION: not a copy, but the actual object! */
         public override function get transformationMatrix():Matrix
         {
+            if (mTransformationChanged)
+            {
+                updateMatrices();
+                mTransformationChanged = false;
+            }
+
             return mTransformationMatrix;
         }
 
         public override function set transformationMatrix(value:Matrix):void
         {
             super.transformationMatrix = value;
+            mRotationX = mRotationY = mPivotZ = mZ = 0;
             mTransformationChanged = true;
         }
 
@@ -173,16 +233,8 @@ package starling.display
         {
             if (mTransformationChanged)
             {
-                // minimum scale; Matrix3D does not like scale values of zero ...
-                const ms:Number = 0.00001;
-
+                updateMatrices();
                 mTransformationChanged = false;
-                mTransformationMatrix3D.identity();
-                mTransformationMatrix3D.appendScale(scaleX || ms , scaleY || ms, mScaleZ || ms);
-                mTransformationMatrix3D.appendRotation(rad2deg(mRotationX), Vector3D.X_AXIS);
-                mTransformationMatrix3D.appendRotation(rad2deg(mRotationY), Vector3D.Y_AXIS);
-                mTransformationMatrix3D.appendRotation(rad2deg( rotation ), Vector3D.Z_AXIS);
-                mTransformationMatrix3D.appendTranslation(x, y, mZ);
             }
 
             return mTransformationMatrix3D;
@@ -203,8 +255,8 @@ package starling.display
         }
 
         /** The z coordinate of the object relative to the local coordinates of the parent.
-         *  The z-axis points into the screen, i.e. positive z-values will move the object further
-         *  away from the camera. */
+         *  The z-axis points away from the camera, i.e. positive z-values will move the object further
+         *  away from the viewer. */
         public function get z():Number { return mZ; }
         public function set z(value:Number):void
         {
@@ -212,22 +264,26 @@ package starling.display
             mTransformationChanged = true;
         }
 
-        /** @private */
+        /** @inheritDoc */
         public override function set pivotX(value:Number):void
         {
-            throw new Error("3D objects do not support pivot points");
-
-            // super.pivotX = value;
-            // mOrientationChanged = true;
+             super.pivotX = value;
+             mTransformationChanged = true;
         }
 
-        /** @private */
+        /** @inheritDoc */
         public override function set pivotY(value:Number):void
         {
-            throw new Error("3D objects do not support pivot points");
+             super.pivotY = value;
+             mTransformationChanged = true;
+        }
 
-            // super.pivotY = value;
-            // mOrientationChanged = value;
+        /** The z coordinate of the object's origin in its own coordinate space (default: 0). */
+        public function get pivotZ():Number { return mPivotZ; }
+        public function set pivotZ(value:Number):void
+        {
+            mPivotZ = value;
+            mTransformationChanged = true;
         }
 
         /** @inheritDoc */
@@ -283,7 +339,7 @@ package starling.display
         public function get rotationX():Number { return mRotationX; }
         public function set rotationX(value:Number):void
         {
-            mRotationX = value;
+            mRotationX = MathUtil.normalizeAngle(value);
             mTransformationChanged = true;
         }
 
@@ -292,7 +348,7 @@ package starling.display
         public function get rotationY():Number { return mRotationY; }
         public function set rotationY(value:Number):void
         {
-            mRotationY = value;
+            mRotationY = MathUtil.normalizeAngle(value);
             mTransformationChanged = true;
         }
 

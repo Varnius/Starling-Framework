@@ -14,15 +14,16 @@ package starling.utils
     import flash.geom.Matrix3D;
     import flash.geom.Point;
     import flash.geom.Vector3D;
-
+    
     import starling.errors.AbstractClassError;
 
     /** A utility class containing methods related to the Matrix class. */
     public class MatrixUtil
     {
-        /** Helper object. */
+        /** Helper objects. */
         private static var sRawData:Vector.<Number> =
             new <Number>[1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1];
+        private static var sRawData2:Vector.<Number> = new Vector.<Number>(16, true);
 
         /** @private */
         public function MatrixUtil() { throw new AbstractClassError(); }
@@ -41,6 +42,23 @@ package starling.utils
             sRawData[13] = matrix.ty;
 
             resultMatrix.copyRawDataFrom(sRawData);
+            return resultMatrix;
+        }
+
+        /** Converts a 3D matrix to a 2D matrix. Beware that this will work only for a 3D matrix
+         *  describing a pure 2D transformation. */
+        public static function convertTo2D(matrix3D:Matrix3D, resultMatrix:Matrix=null):Matrix
+        {
+            if (resultMatrix == null) resultMatrix = new Matrix();
+
+            matrix3D.copyRawDataTo(sRawData2);
+            resultMatrix.a  = sRawData2[ 0];
+            resultMatrix.b  = sRawData2[ 1];
+            resultMatrix.c  = sRawData2[ 4];
+            resultMatrix.d  = sRawData2[ 5];
+            resultMatrix.tx = sRawData2[12];
+            resultMatrix.ty = sRawData2[13];
+
             return resultMatrix;
         }
 
@@ -78,11 +96,11 @@ package starling.utils
         {
             if (resultPoint == null) resultPoint = new Vector3D();
 
-            var data:Vector.<Number> = matrix.rawData;
-            resultPoint.x = x * data[0] + y * data[4] + z * data[ 8] + data[12];
-            resultPoint.y = x * data[1] + y * data[5] + z * data[ 9] + data[13];
-            resultPoint.z = x * data[2] + y * data[6] + z * data[10] + data[14];
-            resultPoint.w = x * data[3] + y * data[7] + z * data[11] + data[15];
+            matrix.copyRawDataTo(sRawData2);
+            resultPoint.x = x * sRawData2[0] + y * sRawData2[4] + z * sRawData2[ 8] + sRawData2[12];
+            resultPoint.y = x * sRawData2[1] + y * sRawData2[5] + z * sRawData2[ 9] + sRawData2[13];
+            resultPoint.z = x * sRawData2[2] + y * sRawData2[6] + z * sRawData2[10] + sRawData2[14];
+            resultPoint.w = x * sRawData2[3] + y * sRawData2[7] + z * sRawData2[11] + sRawData2[15];
 
             return resultPoint;
         }
